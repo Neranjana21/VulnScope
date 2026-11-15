@@ -1,0 +1,6 @@
+# ADR-0003: Per-engagement hash-chained append-only ledger with signed checkpoints
+Status: accepted (supersedes the first draft; see decisions D1)
+Decision: One chain per engagement plus an intake chain per org. `record_hash = SHA-256(prev_hash || canonical_json(entry))`; genesis `prev_hash = SHA-256("vulnscope-ledger-v1:" + chain_id)`; gapless `seq` from 0. Canonical JSON: sorted keys, UTF-8, no insignificant whitespace, UTC timestamps. The app's DB role can only INSERT into the ledger table. Writers to one chain are serialized by a row lock on the chain head. Ed25519-signed checkpoints (`chain_id, seq, head_hash, ts`) are written every 100 records and at engagement close, stored separately and exported outside the database.
+Verify results: `ok`, `bad_record(first_bad_seq)`, `fork(first_conflicting_seq)`, `truncated(expected_min_seq)`.
+Limits: a hash chain detects edits but not tail truncation without an external anchor (the checkpoint); it does not prove who wrote a record; someone holding all keys and the database can rewrite everything. Reports state which checkpoint, if any, was used.
+Consequences: golden tests lock the canonical form; changing it requires a new ledger version.

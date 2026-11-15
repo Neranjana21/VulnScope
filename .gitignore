@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+*.pem
+*.key
+secrets/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+*.sqlite
+
+# Private Claude Code planning files
+.claude/
+CLAUDE.md
+prompts/
+
+# Private planning and gate documents
+docs/gates/
+docs/decisions.md
+docs/roadmap.md
+docs/agent-workflow.md
