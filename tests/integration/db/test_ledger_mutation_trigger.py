@@ -30,7 +30,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -58,7 +58,9 @@ def migrator_database_url() -> str:
 
 def _assert_append_only_violation(exc: BaseException) -> None:
     assert isinstance(exc, DBAPIError), f"expected DBAPIError, got {type(exc)}: {exc}"
-    assert isinstance(exc.orig, RaiseError), f"expected RaiseError, got {type(exc.orig)}: {exc.orig}"
+    assert isinstance(exc.orig, RaiseError), (
+        f"expected RaiseError, got {type(exc.orig)}: {exc.orig}"
+    )
     assert "append-only" in str(exc.orig)
 
 
@@ -74,7 +76,7 @@ async def _insert_one_row(conn: AsyncConnection, chain_id: str) -> None:
         {
             "id": str(uuid.uuid4()),
             "chain_id": chain_id,
-            "ts": datetime.now(timezone.utc),
+            "ts": datetime.now(UTC),
             "prev_hash": "a" * 64,
             "record_hash": "b" * 64,
         },

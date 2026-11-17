@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy import JSON, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -18,7 +19,7 @@ class Scan(Base, TimestampMixin, OrgScopedMixin, EngagementScopedMixin):
     engagement_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("engagements.id"), nullable=False, index=True
     )
-    stages: Mapped[list] = mapped_column(JSON, nullable=False)
-    options: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    schedule: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
+    stages: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    options: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    schedule: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True, default=None)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")

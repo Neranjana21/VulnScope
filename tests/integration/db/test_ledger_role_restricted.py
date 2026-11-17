@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from asyncpg.exceptions import InsufficientPrivilegeError
@@ -86,7 +86,7 @@ async def test_app_role_can_insert_and_select_ledger_entries(app_database_url: s
                 {
                     "id": str(uuid.uuid4()),
                     "chain_id": chain_id,
-                    "ts": datetime.now(timezone.utc),
+                    "ts": datetime.now(UTC),
                     "prev_hash": "a" * 64,
                     "record_hash": "b" * 64,
                 },
@@ -116,7 +116,7 @@ async def test_app_role_can_insert_and_select_checkpoints(app_database_url: str)
                     "id": str(uuid.uuid4()),
                     "chain_id": chain_id,
                     "head_hash": "c" * 64,
-                    "ts": datetime.now(timezone.utc),
+                    "ts": datetime.now(UTC),
                     "signature": "d" * 128,
                 },
             )
@@ -145,13 +145,18 @@ async def test_app_role_can_lock_and_update_chain_heads(app_database_url: str) -
             )
         async with engine.begin() as conn:
             locked = await conn.execute(
-                text("SELECT seq, head_hash FROM chain_heads WHERE chain_id = :chain_id FOR UPDATE"),
+                text(
+                    "SELECT seq, head_hash FROM chain_heads WHERE chain_id = :chain_id FOR UPDATE"
+                ),
                 {"chain_id": chain_id},
             )
             row = locked.one()
             assert row.seq == -1
             await conn.execute(
-                text("UPDATE chain_heads SET seq = 0, head_hash = :head_hash WHERE chain_id = :chain_id"),
+                text(
+                    "UPDATE chain_heads SET seq = 0, head_hash = :head_hash "
+                    "WHERE chain_id = :chain_id"
+                ),
                 {"chain_id": chain_id, "head_hash": "1" * 64},
             )
         async with engine.connect() as conn:

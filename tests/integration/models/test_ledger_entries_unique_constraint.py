@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import text
@@ -51,7 +51,7 @@ async def test_duplicate_chain_id_seq_raises_integrity_error(migrator_database_u
             "VALUES (:id, 1, :chain_id, 0, 'policy.decision', 'system', '{}'::jsonb, "
             ":ts, :prev_hash, :record_hash)"
         )
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         async with engine.begin() as conn:
             await conn.execute(

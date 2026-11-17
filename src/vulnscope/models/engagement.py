@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -22,14 +23,15 @@ class Engagement(Base, TimestampMixin, OrgScopedMixin):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     profile: Mapped[str] = mapped_column(String(16), nullable=False)  # standard|lab
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")  # active|revoked
+    # active|revoked
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
 
-    targets: Mapped[dict] = mapped_column(JSON, nullable=False)
-    scope: Mapped[dict] = mapped_column(JSON, nullable=False)
-    authorization: Mapped[dict] = mapped_column(JSON, nullable=False)
-    identities: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    ownership_rules: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    asset_tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    targets: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    scope: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    authorization: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    identities: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    ownership_rules: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    asset_tags: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
 
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None

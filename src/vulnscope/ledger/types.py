@@ -23,7 +23,9 @@ class LedgerEntry:
     schema_version: int
     chain_id: str  # "engagement:<id>" | "intake:<org_id>"
     seq: int
-    kind: str  # "policy.decision" | "evidence" | "finding.transition" | "engagement.*" | "scan.*" | "checkpoint"
+    # "policy.decision" | "evidence" | "finding.transition" | "engagement.*" |
+    # "scan.*" | "checkpoint"
+    kind: str
     actor: str  # "user:<id>" | "system"
     payload: Mapping[str, object]
     ts: datetime

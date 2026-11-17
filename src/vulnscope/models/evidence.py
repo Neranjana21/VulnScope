@@ -6,6 +6,7 @@ caller already redacted, it does not redact itself.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy import JSON, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -32,6 +33,6 @@ class Evidence(Base, TimestampMixin, OrgScopedMixin, EngagementScopedMixin):
     expected: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     observed: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     policy_version: Mapped[str] = mapped_column(String(128), nullable=False)
-    adapter: Mapped[dict] = mapped_column(JSON, nullable=False)
+    adapter: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     ledger_chain: Mapped[str] = mapped_column(String(255), nullable=False)
     ledger_seq: Mapped[int] = mapped_column(Integer, nullable=False)
