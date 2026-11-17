@@ -105,7 +105,8 @@ async def test_burst_load_engagement_creation(
 
     print(
         f"burst POST /v1/engagements: n={n_requests} concurrency=25 "
-        f"p95={p95 * 1000:.1f}ms server_error_rate={error_rate:.2%} statuses={sorted(set(statuses))}"
+        f"p95={p95 * 1000:.1f}ms server_error_rate={error_rate:.2%} "
+        f"statuses={sorted(set(statuses))}"
     )
     assert error_rate == 0.0, f"{error_rate:.2%} of burst requests returned 5xx"
 

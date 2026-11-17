@@ -25,7 +25,7 @@ from __future__ import annotations
 import os
 import time
 import tracemalloc
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -40,7 +40,7 @@ CATALOGUE_TARGETS = (100_000, 1_000_000)  # docs/stress-tests.md; not run by def
 async def _fill(n: int):
     backend = InMemoryChainBackend()
     chain_id = "engagement:stress-scale"
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for i in range(n):
         await backend.append(chain_id, "policy.decision", "system", {"i": i}, now)
     return backend, chain_id

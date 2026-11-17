@@ -68,7 +68,7 @@ from __future__ import annotations
 import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -97,7 +97,7 @@ async def _hammer_async(backend, chain_id: str, count: int) -> None:
             "policy.decision",
             "system",
             {"i": i},
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
         )
 
 

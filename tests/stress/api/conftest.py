@@ -36,7 +36,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Iterator
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -124,7 +124,7 @@ def engagement_payload_factory():
     always-valid-at-call-time window."""
 
     def _make(name_suffix: str = "") -> dict:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         not_before = now - timedelta(minutes=1)
         not_after = now + timedelta(days=7)
         return {

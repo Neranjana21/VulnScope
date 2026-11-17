@@ -23,7 +23,7 @@ every assertion are unchanged from the pre-async version.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -38,7 +38,7 @@ async def test_chain_verifiable_after_simulated_crash_mid_sequence(crash_backend
     crashy = crash_backend_factory(inner, crash_after=7)
 
     committed = 0
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with pytest.raises(RuntimeError, match="simulated crash"):
         for i in range(20):
             await crashy.append(chain_id, "policy.decision", "system", {"i": i}, now)
@@ -65,7 +65,9 @@ async def test_chain_verifiable_after_simulated_crash_mid_sequence(crash_backend
 
 @pytest.mark.asyncio
 @pytest.mark.requires_postgres
-async def test_postgres_chain_verifiable_after_simulated_crash(pg_chain_backend, crash_backend_factory) -> None:
+async def test_postgres_chain_verifiable_after_simulated_crash(
+    pg_chain_backend, crash_backend_factory
+) -> None:
     """Same scenario against the real transactional backend: a crash that
     interrupts one in-flight append() must not leave a partially committed
     row (the DB transaction either fully commits or not at all), so the
@@ -73,7 +75,7 @@ async def test_postgres_chain_verifiable_after_simulated_crash(pg_chain_backend,
     against the in-memory fake."""
     chain_id = "engagement:stress-crash-pg"
     crashy = crash_backend_factory(pg_chain_backend, crash_after=5)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     committed = 0
     with pytest.raises(RuntimeError, match="simulated crash"):
