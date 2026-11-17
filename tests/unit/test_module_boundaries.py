@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-SRC_ROOT = Path(__file__).resolve().parents[1] / "src" / "vulnscope"
+SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "vulnscope"
 
 # Verbatim list from docs/gates/slice0-plan.md Section 2's module-boundary
 # rule (paths relative to src/vulnscope/).
