@@ -12,6 +12,12 @@ Supports: Slice 0 AC6 ("idempotency behaves as specified").
 
 Needs a throwaway Postgres instance (VULNSCOPE_TEST_DATABASE_URL) and
 Task D's FastAPI app; skipped otherwise (see tests/stress/api/conftest.py).
+
+Async update (docs/gates/slice0-pre-stress-recheck.md round 3): the
+`admin_api_key` fixture is now an async fixture (per
+docs/gates/slice0-plan.md §3.7/§3.8); both test functions below are `async
+def` only so pytest-asyncio can resolve it -- their bodies stay fully
+synchronous (`TestClient`, `ThreadPoolExecutor`).
 """
 from __future__ import annotations
 
@@ -25,7 +31,8 @@ pytestmark = pytest.mark.requires_postgres
 N_CONCURRENT = 30
 
 
-def test_same_key_same_body_concurrent_creates_exactly_one_resource(
+@pytest.mark.asyncio
+async def test_same_key_same_body_concurrent_creates_exactly_one_resource(
     client: TestClient, admin_api_key: str, engagement_payload_factory
 ) -> None:
     payload = engagement_payload_factory()
@@ -51,7 +58,8 @@ def test_same_key_same_body_concurrent_creates_exactly_one_resource(
     )
 
 
-def test_same_key_different_body_concurrent_conflicts_not_duplicates(
+@pytest.mark.asyncio
+async def test_same_key_different_body_concurrent_conflicts_not_duplicates(
     client: TestClient, admin_api_key: str, engagement_payload_factory
 ) -> None:
     key = "stress-idempotency-conflict-key"

@@ -1,15 +1,28 @@
 """Shared fixtures for API stress tests.
 
-Recheck update (docs/gates/slice0-pre-stress-recheck.md): the ambiguity
-originally flagged here (docs/gates/slice0-pre-stress.md) is resolved.
-docs/gates/slice0-plan.md Section 3.7 (fixes STR-1) now PINS
+Recheck update, round 1 (docs/gates/slice0-pre-stress-recheck.md): the
+ambiguity originally flagged here (docs/gates/slice0-pre-stress.md) is
+resolved. docs/gates/slice0-plan.md Section 3.7 (fixes STR-1) PINS
 `create_app(settings: Settings | None = None) -> FastAPI`, and this
 fixture's zero-argument call matches it exactly (the `settings` parameter
 is optional). Likewise `Org(id, name, ...)` / `ApiKey(id, org_id,
 hashed_key, role, ...)` are pinned with additional nullable/defaulted
 columns (`created_at`, `updated_at`, `revoked_at`) that do not affect the
-keyword-argument construction used below. No fixture code changed as a
-result -- only this comment, from "assumed" to "confirmed against §3.7".
+keyword-argument construction used below.
+
+Recheck update, round 3 (docs/gates/slice0-pre-stress-recheck.md): `app`
+and `client` are UNCHANGED by the async-engine correction -- FastAPI's own
+async route handlers already handle the sync-test-client/async-app
+boundary internally (`TestClient` bridges to the ASGI app regardless of
+what's async inside it), and neither fixture touches `ChainBackend`/
+`PostgresChainBackend`/`db.session` directly. `admin_api_key`, however,
+DOES touch the DB layer directly (it seeds rows by bypassing the API), and
+docs/gates/slice0-plan.md §3.7/§3.8 now pins `db/session.py` as exposing
+only `get_async_engine()`/`get_async_sessionmaker()` -- there is no sync
+`get_sessionmaker()` anymore. `admin_api_key` is updated below to an async
+fixture using `get_async_sessionmaker()` and `async with`/`await
+session.commit()`; `engagement_payload_factory` is a pure dict-building
+function with no DB/ChainBackend contact and is also unchanged.
 
 All stress-test targets below are placeholder lab hostnames (*.lab.test);
 per D8 the `lab` profile only exists when the deployment explicitly enables
@@ -26,6 +39,7 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 TEST_DATABASE_URL_ENV = "VULNSCOPE_TEST_DATABASE_URL"
@@ -62,8 +76,8 @@ def client(app) -> Iterator[TestClient]:
         yield c
 
 
-@pytest.fixture
-def admin_api_key(app, test_database_url: str) -> str:
+@pytest_asyncio.fixture
+async def admin_api_key(app, test_database_url: str) -> str:
     """Seeds one Org + one admin ApiKey directly through the ORM (bypassing
     the API) and returns the raw bearer token.
 
@@ -72,18 +86,25 @@ def admin_api_key(app, test_database_url: str) -> str:
     role, ...)`, matching the construction below exactly. The extra
     columns §3.7 adds (`created_at`, `updated_at`, `revoked_at`) are
     nullable/defaulted and so are not passed here.
+
+    Async update (docs/gates/slice0-pre-stress-recheck.md round 3):
+    `db/session.py` now exposes only `get_async_sessionmaker(database_url)
+    -> async_sessionmaker[AsyncSession]` (§3.7/§3.8) -- the sync
+    `get_sessionmaker()` this fixture used before no longer exists. The
+    seeded rows and returned bearer token are unchanged; only the
+    session acquisition/commit mechanics are now `async with`/`await`.
     """
     from vulnscope.api.auth import hash_api_key
-    from vulnscope.db.session import get_sessionmaker
+    from vulnscope.db.session import get_async_sessionmaker
     from vulnscope.models.api_key import ApiKey
     from vulnscope.models.org import Org
 
     raw_key = f"vs_test_{uuid.uuid4().hex}"
-    session_factory = get_sessionmaker(test_database_url)
-    with session_factory() as session:
+    session_factory = get_async_sessionmaker(test_database_url)
+    async with session_factory() as session:
         org = Org(id=str(uuid.uuid4()), name=f"stress-org-{uuid.uuid4().hex[:8]}")
         session.add(org)
-        session.flush()
+        await session.flush()
         key_row = ApiKey(
             id=str(uuid.uuid4()),
             org_id=org.id,
@@ -91,7 +112,7 @@ def admin_api_key(app, test_database_url: str) -> str:
             role="admin",
         )
         session.add(key_row)
-        session.commit()
+        await session.commit()
 
     return raw_key
 

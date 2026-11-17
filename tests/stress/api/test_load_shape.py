@@ -8,6 +8,16 @@ Supports: Slice 0 AC6 (engagement creation path), AC8/AC9 indirectly
 
 Needs a throwaway Postgres instance (VULNSCOPE_TEST_DATABASE_URL) and
 Task D's FastAPI app; skipped otherwise (see tests/stress/api/conftest.py).
+
+Async update (docs/gates/slice0-pre-stress-recheck.md round 3): the
+`admin_api_key` fixture is now an async fixture (it seeds rows via
+`get_async_sessionmaker()`, per docs/gates/slice0-plan.md §3.7/§3.8). Any
+test consuming it must itself be `async def` for pytest-asyncio to resolve
+it -- this is the only reason the three test functions below are `async
+def` now; their BODIES remain fully synchronous (plain `TestClient` calls,
+`ThreadPoolExecutor`), since neither `app`/`client` nor these tests touch
+`ChainBackend`/`PostgresChainBackend` directly (see the conftest module
+docstring for why those two fixtures are unaffected).
 """
 from __future__ import annotations
 
@@ -44,7 +54,8 @@ def _timed_create(client: TestClient, api_key: str, payload_factory) -> tuple[fl
     return elapsed, resp.status_code
 
 
-def test_sustained_load_engagement_creation(
+@pytest.mark.asyncio
+async def test_sustained_load_engagement_creation(
     client: TestClient, admin_api_key: str, engagement_payload_factory
 ) -> None:
     n_requests = 100
@@ -74,7 +85,8 @@ def test_sustained_load_engagement_creation(
     )
 
 
-def test_burst_load_engagement_creation(
+@pytest.mark.asyncio
+async def test_burst_load_engagement_creation(
     client: TestClient, admin_api_key: str, engagement_payload_factory
 ) -> None:
     n_requests = 50
@@ -98,7 +110,8 @@ def test_burst_load_engagement_creation(
     assert error_rate == 0.0, f"{error_rate:.2%} of burst requests returned 5xx"
 
 
-def test_sustained_load_ledger_verify(client: TestClient, admin_api_key: str) -> None:
+@pytest.mark.asyncio
+async def test_sustained_load_ledger_verify(client: TestClient, admin_api_key: str) -> None:
     n_requests = 100
     latencies: list[float] = []
     statuses: list[int] = []
