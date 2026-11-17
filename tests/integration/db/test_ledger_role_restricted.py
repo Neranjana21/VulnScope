@@ -17,11 +17,13 @@ Postgres reachable as the restricted ``vulnscope_app`` role is configured
 """
 from __future__ import annotations
 
-import os
+import sys
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
+import pytest_asyncio
 from asyncpg.exceptions import InsufficientPrivilegeError
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
@@ -29,6 +31,16 @@ from sqlalchemy.exc import DBAPIError
 from vulnscope.db.session import get_async_engine
 
 APP_ENV_VAR = "VULNSCOPE_TEST_APP_DATABASE_URL"
+
+# See tests/integration/models/test_migration_roundtrip.py's identical
+# comment: tests/integration/_guard.py is loaded via a sys.path insertion,
+# not a dotted package import, since this tree has no __init__.py and
+# this change must not touch pyproject.toml's pythonpath.
+_INTEGRATION_DIR = Path(__file__).resolve().parents[1]
+if str(_INTEGRATION_DIR) not in sys.path:
+    sys.path.insert(0, str(_INTEGRATION_DIR))
+
+from _guard import require_safe_dev_database_url  # noqa: E402
 
 LEDGER_ENTRIES_NEGATIVE_STATEMENTS = [
     "UPDATE ledger_entries SET kind = 'x' WHERE seq = -999",
@@ -50,16 +62,9 @@ CHAIN_HEADS_NEGATIVE_STATEMENTS = [
 ]
 
 
-@pytest.fixture
-def app_database_url() -> str:
-    url = os.environ.get(APP_ENV_VAR)
-    if not url:
-        pytest.skip(
-            f"{APP_ENV_VAR} not set; this test needs a throwaway, migrated "
-            "Postgres reachable as the restricted vulnscope_app role -- not "
-            "started this session (see docs/gates/slice0-plan.md Section 3.10)."
-        )
-    return url
+@pytest_asyncio.fixture
+async def app_database_url() -> str:
+    return await require_safe_dev_database_url(APP_ENV_VAR)
 
 
 def _assert_insufficient_privilege(exc: BaseException) -> None:

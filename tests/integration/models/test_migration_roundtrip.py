@@ -21,12 +21,24 @@ import sys
 from pathlib import Path
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import text
 
 from vulnscope.db.session import get_async_engine
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ENV_VAR = "VULNSCOPE_MIGRATION_DATABASE_URL"
+
+# tests/integration/_guard.py is a plain helper module, not part of the
+# vulnscope package and not reachable via a dotted "tests.integration"
+# import (this tree has no __init__.py and this change must not touch
+# pyproject.toml's pythonpath) -- so it is loaded by inserting its own
+# directory onto sys.path, once, here.
+_INTEGRATION_DIR = Path(__file__).resolve().parents[1]
+if str(_INTEGRATION_DIR) not in sys.path:
+    sys.path.insert(0, str(_INTEGRATION_DIR))
+
+from _guard import require_safe_dev_database_url  # noqa: E402
 
 EXPECTED_TABLES = {
     "orgs",
@@ -44,16 +56,9 @@ EXPECTED_TABLES = {
 }
 
 
-@pytest.fixture
-def migration_database_url() -> str:
-    url = os.environ.get(ENV_VAR)
-    if not url:
-        pytest.skip(
-            f"{ENV_VAR} not set; the migration roundtrip test needs a throwaway "
-            "CI/dev Postgres instance, reachable as the vulnscope_migrator role -- "
-            "not started this session (see docs/gates/slice0-plan.md Section 3.8)."
-        )
-    return url
+@pytest_asyncio.fixture
+async def migration_database_url() -> str:
+    return await require_safe_dev_database_url(ENV_VAR)
 
 
 def _run_alembic(args: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:

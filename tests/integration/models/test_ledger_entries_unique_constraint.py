@@ -14,11 +14,13 @@ Skips cleanly (not a failure) when no throwaway Postgres is configured.
 """
 from __future__ import annotations
 
-import os
+import sys
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -26,17 +28,20 @@ from vulnscope.db.session import get_async_engine
 
 ENV_VAR = "VULNSCOPE_MIGRATION_DATABASE_URL"
 
+# See tests/integration/models/test_migration_roundtrip.py's identical
+# comment: tests/integration/_guard.py is loaded via a sys.path insertion,
+# not a dotted package import, since this tree has no __init__.py and
+# this change must not touch pyproject.toml's pythonpath.
+_INTEGRATION_DIR = Path(__file__).resolve().parents[1]
+if str(_INTEGRATION_DIR) not in sys.path:
+    sys.path.insert(0, str(_INTEGRATION_DIR))
 
-@pytest.fixture
-def migrator_database_url() -> str:
-    url = os.environ.get(ENV_VAR)
-    if not url:
-        pytest.skip(
-            f"{ENV_VAR} not set; this test needs a throwaway, already-migrated "
-            "Postgres -- not started this session (see "
-            "docs/gates/slice0-plan.md Section 5 Task 0)."
-        )
-    return url
+from _guard import require_safe_dev_database_url  # noqa: E402
+
+
+@pytest_asyncio.fixture
+async def migrator_database_url() -> str:
+    return await require_safe_dev_database_url(ENV_VAR)
 
 
 @pytest.mark.integration

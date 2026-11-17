@@ -48,3 +48,10 @@ REVOKE DELETE, TRUNCATE ON chain_heads FROM vulnscope_app;   -- rows are updated
 -- set.
 GRANT SELECT, INSERT, UPDATE, DELETE ON engagements, scans, findings, evidence, idempotency_keys,
     orgs, users, api_keys TO vulnscope_app;
+
+-- Dev-disposable marker (owner-required safety guard, tests/integration/_guard.py):
+-- lets integration tests verify, via a read-only query, that a configured
+-- database URL actually points at this throwaway dev instance before any
+-- destructive test proceeds. Takes effect for new sessions connecting to
+-- this database, not the current one (ALTER DATABASE ... SET semantics).
+ALTER DATABASE vulnscope SET vulnscope.env = 'dev-disposable';
