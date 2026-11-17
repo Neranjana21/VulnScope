@@ -38,7 +38,7 @@ import pytest_asyncio
 from asyncpg.exceptions import RaiseError
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from vulnscope.db.session import get_async_engine
 
@@ -105,7 +105,7 @@ async def migrator_engine(migrator_database_url: str) -> AsyncIterator[object]:
     ],
 )
 async def test_trigger_blocks_mutation_for_owner_role(
-    migrator_engine, statement_template: str
+    migrator_engine: AsyncEngine, statement_template: str
 ) -> None:
     chain_id = f"engagement:{uuid.uuid4()}"
     async with migrator_engine.begin() as conn:
@@ -118,7 +118,7 @@ async def test_trigger_blocks_mutation_for_owner_role(
 
 
 @pytest.mark.integration
-async def test_trigger_blocks_truncate_for_owner_role(migrator_engine) -> None:
+async def test_trigger_blocks_truncate_for_owner_role(migrator_engine: AsyncEngine) -> None:
     chain_id = f"engagement:{uuid.uuid4()}"
     async with migrator_engine.begin() as conn:
         await _insert_one_row(conn, chain_id)
@@ -131,7 +131,7 @@ async def test_trigger_blocks_truncate_for_owner_role(migrator_engine) -> None:
 
 @pytest.mark.integration
 async def test_trigger_still_fires_under_replica_session_replication_role(
-    migrator_engine,
+    migrator_engine: AsyncEngine,
 ) -> None:
     """ENABLE ALWAYS TRIGGER (INFRA-5's fix): the guard must hold even for
     rows applied under session_replication_role = replica (the role a
@@ -152,7 +152,7 @@ async def test_trigger_still_fires_under_replica_session_replication_role(
 
 @pytest.mark.integration
 async def test_disable_trigger_break_glass_path_is_documented_limitation(
-    migrator_engine,
+    migrator_engine: AsyncEngine,
 ) -> None:
     """ALTER TABLE ... DISABLE TRIGGER is the one acknowledged bypass
     (table-owner/superuser DDL rights can always remove the guard before
