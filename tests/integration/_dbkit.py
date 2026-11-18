@@ -49,6 +49,30 @@ def kit() -> Any:
     return importlib.import_module("vulnscope_db_plugin")
 
 
+def assert_pg_error(exc: BaseException, *, sqlstate: str, exc_name: str, message: str | None = None) -> None:
+    """Assert ``exc`` is a SQLAlchemy ``DBAPIError`` wrapping a real asyncpg server error.
+
+    Under SQLAlchemy's asyncpg adapter ``exc.orig`` is an adapter wrapper; the genuine asyncpg
+    exception is ``exc.orig.__cause__``. Requires the asyncpg class name AND its SQLSTATE to match
+    (and, when given, ``message`` to occur in the server message). Failure messages carry only
+    class names, SQLSTATEs and the server message text, never a DSN or connection value.
+    """
+    from asyncpg.exceptions import PostgresError
+    from sqlalchemy.exc import DBAPIError
+
+    assert isinstance(exc, DBAPIError), f"expected DBAPIError, got {type(exc).__name__}"
+    cause = getattr(exc.orig, "__cause__", None)
+    if not isinstance(cause, PostgresError):
+        cause = exc.orig  # tolerate a driver that exposes the asyncpg error directly
+    assert isinstance(cause, PostgresError), (
+        f"underlying error is not an asyncpg PostgresError: {type(cause).__name__}"
+    )
+    assert type(cause).__name__ == exc_name, f"expected {exc_name}, got {type(cause).__name__}"
+    assert cause.sqlstate == sqlstate, f"expected SQLSTATE {sqlstate}, got {cause.sqlstate}"
+    if message is not None:
+        assert message in str(cause), f"expected {message!r} in server message, got: {cause}"
+
+
 def table_grants() -> dict[str, tuple[str, ...]]:
     """The module-level literal ``TABLE_GRANTS`` of migration 0001, read without importing it."""
     tree = ast.parse(MIGRATION_0001.read_text(encoding="utf-8"))

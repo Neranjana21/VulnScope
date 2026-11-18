@@ -35,7 +35,6 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from asyncpg.exceptions import RaiseError
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
@@ -52,6 +51,7 @@ _INTEGRATION_DIR = Path(__file__).resolve().parents[1]
 if str(_INTEGRATION_DIR) not in sys.path:
     sys.path.insert(0, str(_INTEGRATION_DIR))
 
+from _dbkit import assert_pg_error  # noqa: E402
 from _guard import require_safe_dev_database_url  # noqa: E402
 
 
@@ -61,11 +61,7 @@ async def migrator_database_url() -> str:
 
 
 def _assert_append_only_violation(exc: BaseException) -> None:
-    assert isinstance(exc, DBAPIError), f"expected DBAPIError, got {type(exc)}: {exc}"
-    assert isinstance(exc.orig, RaiseError), (
-        f"expected RaiseError, got {type(exc.orig)}: {exc.orig}"
-    )
-    assert "append-only" in str(exc.orig)
+    assert_pg_error(exc, sqlstate="P0001", exc_name="RaiseError", message="append-only")
 
 
 async def _insert_one_row(conn: AsyncConnection, chain_id: str) -> None:

@@ -24,7 +24,6 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from asyncpg.exceptions import InsufficientPrivilegeError
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
@@ -40,6 +39,7 @@ _INTEGRATION_DIR = Path(__file__).resolve().parents[1]
 if str(_INTEGRATION_DIR) not in sys.path:
     sys.path.insert(0, str(_INTEGRATION_DIR))
 
+from _dbkit import assert_pg_error  # noqa: E402
 from _guard import require_safe_dev_database_url  # noqa: E402
 
 LEDGER_ENTRIES_NEGATIVE_STATEMENTS = [
@@ -68,10 +68,7 @@ async def app_database_url() -> str:
 
 
 def _assert_insufficient_privilege(exc: BaseException) -> None:
-    assert isinstance(exc, DBAPIError), f"expected DBAPIError, got {type(exc)}: {exc}"
-    assert isinstance(exc.orig, InsufficientPrivilegeError), (
-        f"expected InsufficientPrivilegeError, got {type(exc.orig)}: {exc.orig}"
-    )
+    assert_pg_error(exc, sqlstate="42501", exc_name="InsufficientPrivilegeError")
 
 
 @pytest.mark.integration
