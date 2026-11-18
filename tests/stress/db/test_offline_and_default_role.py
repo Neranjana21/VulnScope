@@ -40,13 +40,20 @@ def test_app_role_constant_equals_the_role_created_by_init_roles_sql() -> None:
 
 
 def test_no_command_line_seam_for_the_app_role_exists_under_alembic() -> None:
+    # The bare substring "app_role" is NOT a needle: the required call
+    # ``mg.require_app_role(bind, mg.APP_ROLE)`` in 0001_initial.py contains it. Only patterns that
+    # denote a way to NAME another role from the command line, config or environment count.
+    # (env.py legitimately reads VULNSCOPE_MIGRATION_DATABASE_URL, so environ only counts near ROLE.)
+    seam = re.compile(
+        r"get_x_argument|x_arguments|-x |-x\s+\w*role|config\.cmd_opts|(?:environ|getenv)[^\n]*role",
+        re.IGNORECASE,
+    )
     offenders = []
     for path in (kit.REPO_ROOT / "alembic").rglob("*"):
         if path.is_file() and path.suffix in {".py", ".ini", ".mako"}:
             text = path.read_text(encoding="utf-8")
-            for needle in ("get_x_argument", "-x ", "x_arguments", "app_role"):
-                if needle in text:
-                    offenders.append(f"{path.relative_to(kit.REPO_ROOT)}: {needle!r}")
+            for m in seam.finditer(text):
+                offenders.append(f"{path.relative_to(kit.REPO_ROOT)}: {m.group(0)!r}")
     assert not offenders, "a way to name another role exists: " + "; ".join(offenders)
 
 

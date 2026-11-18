@@ -232,7 +232,7 @@ tests/stress/db/test_mutation_helper_statements.py::test_oracle_detects_seeded_d
 tests/stress/db/test_mutation_helper_statements.py::test_oracle_detects_seeded_drift_when_verification_is_bypassed[ledger_entries-grant] | RED | bypassed-verify mutant run failed to migrate.*(No module named|cannot import name)
 tests/stress/db/test_offline_and_default_role.py::test_offline_sql_mode_is_refused_with_a_clear_message | RED | OFFLINE:
 tests/stress/db/test_offline_and_default_role.py::test_app_role_constant_equals_the_role_created_by_init_roles_sql | RED | No module named 'vulnscope\.db\.migration_grants'
-tests/stress/db/test_offline_and_default_role.py::test_no_command_line_seam_for_the_app_role_exists_under_alembic | GREEN | holds before the fix: nothing under alembic reads a -x argument or app_role
+tests/stress/db/test_offline_and_default_role.py::test_no_command_line_seam_for_the_app_role_exists_under_alembic | GREEN | holds before the fix: nothing under alembic reads a -x argument, config.cmd_opts or an environ/getenv value near ROLE (the bare name app_role is no longer a needle, so the required require_app_role call is not an offender)
 tests/stress/db/test_offline_and_default_role.py::test_app_role_is_not_overridable_through_the_environment | RED | No module named 'vulnscope\.db\.migration_grants'
 tests/stress/db/test_privilege_escalation_probes.py::test_role_level_probe_is_denied[set_role_migrator] | GREEN | holds before and after the fix: role-level or ownership denial independent of table grants
 tests/stress/db/test_privilege_escalation_probes.py::test_role_level_probe_is_denied[copy_to_program] | GREEN | holds before and after the fix: role-level or ownership denial independent of table grants
