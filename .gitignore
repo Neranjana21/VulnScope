@@ -13,6 +13,7 @@ node_modules/
 
 # Test and dry-run reports (JUnit, stress records); never committed
 .reports/
+.hypothesis/
 
 # Private Claude Code planning files
 .claude/
