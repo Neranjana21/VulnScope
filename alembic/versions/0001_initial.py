@@ -10,7 +10,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
+from alembic import context, op
+
+from vulnscope.db import migration_grants as mg
 
 # revision identifiers, used by Alembic.
 revision: str = "0001_initial"
@@ -19,7 +21,33 @@ branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 
 
+# This migration's explicit, frozen privilege decision per table (plan 3.10.1). Every migration
+# that creates a table carries its own literal map and must include "alembic_version": ().
+TABLE_GRANTS = {
+    "alembic_version": (),
+    "api_keys": ("SELECT", "INSERT", "UPDATE", "DELETE"),
+    "chain_heads": ("SELECT", "INSERT", "UPDATE"),  # UPDATE is what makes SELECT..FOR UPDATE legal
+    "checkpoints": ("SELECT", "INSERT"),  # append-only; also trigger-protected
+    "engagements": ("SELECT", "INSERT", "UPDATE", "DELETE"),
+    "evidence": ("SELECT", "INSERT", "UPDATE", "DELETE"),
+    "findings": ("SELECT", "INSERT", "UPDATE", "DELETE"),
+    "idempotency_keys": ("SELECT", "INSERT", "UPDATE", "DELETE"),
+    "ledger_entries": ("SELECT", "INSERT"),  # append-only; also trigger-protected
+    "orgs": ("SELECT", "INSERT", "UPDATE", "DELETE"),
+    "scans": ("SELECT", "INSERT", "UPDATE", "DELETE"),
+    "users": ("SELECT", "INSERT", "UPDATE", "DELETE"),
+}
+
+
 def upgrade() -> None:
+    if context.is_offline_mode():
+        raise RuntimeError("0001_initial cannot run with --sql: it must query pg_roles first")
+    # Pure: a malformed map or identifier fails here, before any database access.
+    statements = mg.grant_statements(mg.APP_ROLE, TABLE_GRANTS)
+    bind = op.get_bind()
+    mg.require_app_role(bind, mg.APP_ROLE)  # first database access, before any DDL
+    before = mg.list_relations(bind)
+
     op.create_table(
         "orgs",
         sa.Column("id", sa.String(36), primary_key=True),
@@ -253,8 +281,13 @@ def upgrade() -> None:
         "ALTER TABLE checkpoints ENABLE ALWAYS TRIGGER checkpoints_no_truncate;"
     )
 
+    mg.require_grant_decision_for_new_relations(before, mg.list_relations(bind), TABLE_GRANTS)
+    mg.apply_statements(bind, statements)  # grants, after tables and triggers
+    mg.verify_effective_privileges(bind, mg.APP_ROLE, TABLE_GRANTS)  # last; mismatch rolls back
+
 
 def downgrade() -> None:
+    mg.require_disposable_or_empty_ledger(op.get_bind())
     op.execute("DROP TRIGGER IF EXISTS checkpoints_no_truncate ON checkpoints;")
     op.execute("DROP TRIGGER IF EXISTS checkpoints_no_mutate ON checkpoints;")
     op.execute("DROP TRIGGER IF EXISTS ledger_entries_no_truncate ON ledger_entries;")
