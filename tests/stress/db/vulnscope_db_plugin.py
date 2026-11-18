@@ -34,6 +34,8 @@ from typing import Any, TypeVar
 from urllib.parse import urlsplit, urlunsplit
 
 import pytest
+from stress_db_secrets import Secret as Secret
+from stress_db_secrets import register_secret, reveal, scrub
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[2]
@@ -62,7 +64,7 @@ class UnsafeTarget(RuntimeError):
 
 
 def assert_lab_url(url: str, *, allow_shared: bool = True, allow_scratch: bool = True) -> None:
-    p = urlsplit(url)
+    p = urlsplit(reveal(url))
     if p.hostname != HOST or p.port != PORT:
         raise UnsafeTarget(f"refusing non-lab target host={p.hostname!r} port={p.port!r}")
     name = p.path.lstrip("/")
@@ -73,18 +75,18 @@ def assert_lab_url(url: str, *, allow_shared: bool = True, allow_scratch: bool =
     raise UnsafeTarget(f"refusing database name {name!r}")
 
 
-def to_dsn(url: str) -> str:
-    return url.replace("postgresql+asyncpg://", "postgresql://", 1)
+def to_dsn(url: str) -> Secret:
+    return Secret(reveal(url).replace("postgresql+asyncpg://", "postgresql://", 1))
 
 
-def with_db(url: str, dbname: str) -> str:
-    p = urlsplit(url)
-    return urlunsplit(p._replace(path="/" + dbname))
+def with_db(url: str, dbname: str) -> Secret:
+    p = urlsplit(reveal(url))
+    return Secret(urlunsplit(p._replace(path="/" + dbname)))
 
 
-def with_user(url: str, user: str, password: str) -> str:
-    p = urlsplit(url)
-    return urlunsplit(p._replace(netloc=f"{user}:{password}@{p.hostname}:{p.port}"))
+def with_user(url: str, user: str, password: str) -> Secret:
+    p = urlsplit(reveal(url))
+    return Secret(urlunsplit(p._replace(netloc=f"{user}:{reveal(password)}@{p.hostname}:{p.port}")))
 
 
 def lazy(module: str) -> ModuleType:
@@ -105,9 +107,10 @@ def with_conn(dsn: str, fn: Callable[[Any], Awaitable[T]], *, timeout: float = 3
     import asyncpg
 
     assert_lab_url(dsn)
+    plain = reveal(dsn)
 
     async def _go() -> T:
-        conn = await asyncpg.connect(dsn, timeout=timeout)
+        conn = await asyncpg.connect(plain, timeout=timeout)
         try:
             return await fn(conn)
         finally:
@@ -138,9 +141,10 @@ def run_sync_helper(sa_url: str, fn: Callable[[Any], T]) -> T:
     from sqlalchemy.ext.asyncio import create_async_engine
 
     assert_lab_url(sa_url)
+    plain = reveal(sa_url)
 
     async def _go() -> T:
-        engine = create_async_engine(sa_url)
+        engine = create_async_engine(plain)
         try:
             async with engine.begin() as conn:
                 return await conn.run_sync(fn)
@@ -160,7 +164,7 @@ class AdvisoryLock:
 
     def __init__(self, dsn: str, key: int, timeout: float) -> None:
         assert_lab_url(dsn)
-        self.dsn, self.key, self.timeout = dsn, key, timeout
+        self.dsn, self.key, self.timeout = Secret(reveal(dsn)), key, timeout
         self._ready = threading.Event()
         self._release = threading.Event()
         self._err: BaseException | None = None
@@ -171,7 +175,7 @@ class AdvisoryLock:
 
         conn = None
         try:
-            conn = await asyncpg.connect(self.dsn, timeout=15)
+            conn = await asyncpg.connect(reveal(self.dsn), timeout=15)
             deadline = time.monotonic() + self.timeout
             while not await conn.fetchval("SELECT pg_try_advisory_lock($1)", self.key):
                 if time.monotonic() > deadline:
@@ -204,28 +208,38 @@ class AdvisoryLock:
 
 
 # --------------------------------------------------------------------------- environment
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class StressEnv:
-    admin_url: str  # SQLAlchemy form, database vulnscope
-    app_url: str
-    app_password: str
-    admin_password: str
+    """No secret is printable: every secret field is a ``Secret`` and ``repr`` is fixed text."""
+
+    admin_url: Secret = field(repr=False)  # SQLAlchemy form, database vulnscope
+    app_url: Secret = field(repr=False)
+    app_password: Secret = field(repr=False)
+    admin_password: Secret = field(repr=False)
     admin_user: str
     admin_is_superuser: bool
 
+    def __repr__(self) -> str:
+        return f"StressEnv(<redacted>, admin_user={self.admin_user!r})"
 
-@dataclass
+
+@dataclass(repr=False)
 class ScratchDb:
     name: str
-    admin_url: str
-    app_url: str
-    admin_dsn: str
-    app_dsn: str
+    admin_url: Secret = field(repr=False)
+    app_url: Secret = field(repr=False)
+    admin_dsn: Secret = field(repr=False)
+    app_dsn: Secret = field(repr=False)
     roles: list[str] = field(default_factory=list)
 
+    def __repr__(self) -> str:
+        return f"ScratchDb(name={self.name!r}, <redacted>)"
 
-def _secret_of(url: str) -> str:
-    return urlsplit(url).password or ""
+
+def _secret_of(url: str) -> Secret:
+    pw = Secret(urlsplit(reveal(url)).password or "")
+    register_secret(pw)
+    return pw
 
 
 def _env_or_skip(name: str) -> str:
@@ -237,8 +251,8 @@ def _env_or_skip(name: str) -> str:
 
 @pytest.fixture(scope="session")
 def stress_env() -> Iterator[StressEnv]:
-    admin_url = _env_or_skip(ADMIN_ENV)
-    app_url = _env_or_skip(APP_ENV)
+    admin_url = Secret(_env_or_skip(ADMIN_ENV))
+    app_url = Secret(_env_or_skip(APP_ENV))
     for u in (admin_url, app_url):
         try:
             assert_lab_url(u, allow_scratch=False)
@@ -279,8 +293,11 @@ def stress_env() -> Iterator[StressEnv]:
 
 def assert_no_secret(env: StressEnv, *texts: str) -> None:
     for secret in (env.app_password, env.admin_password):
-        if secret and any(secret in t for t in texts):
+        plain = reveal(secret)
+        if plain and any(plain in t for t in texts):
             pytest.fail("a database password appears in captured subprocess output")
+    if any(scrub(t) != t for t in texts):
+        pytest.fail("secret-shaped text (URL userinfo or a password fragment) in captured subprocess output")
 
 
 class ScratchManager:
@@ -317,14 +334,15 @@ class ScratchManager:
                 pytest.fail(f"alembic upgrade head failed on scratch DB (rc={proc.returncode}): {proc.stderr[-1500:]}")
         return db
 
-    def new_role(self, db: ScratchDb, *, login: bool = True, extra: str = "") -> tuple[str, str]:
+    def new_role(self, db: ScratchDb, *, login: bool = True, extra: str = "") -> tuple[str, Secret]:
         name = f"vulnscope_stress_{uuid.uuid4().hex[:8]}"
         assert SCRATCH_ROLE_RE.fullmatch(name)
-        pw = secrets.token_hex(16)
+        pw = Secret(secrets.token_hex(16))
+        register_secret(pw)
         attrs = "LOGIN" if login else "NOLOGIN"
         execute(
             self.shared_dsn,
-            f"CREATE ROLE \"{name}\" {attrs} PASSWORD '{pw}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            f"CREATE ROLE \"{name}\" {attrs} PASSWORD '{reveal(pw)}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             f"NOBYPASSRLS NOREPLICATION {extra}",
         )
         db.roles.append(name)
@@ -407,7 +425,7 @@ def shared_db_lock(stress_env: StressEnv) -> Iterator[None]:
 
 
 @pytest.fixture
-def oracle_dsn(request: pytest.FixtureRequest, stress_env: StressEnv) -> str:
+def oracle_dsn(request: pytest.FixtureRequest, stress_env: StressEnv) -> Secret:
     """Admin DSN the oracle reads catalogs through: scratch DB by default, shared DB read-only
     when VULNSCOPE_ORACLE_SHARED=1."""
     if os.environ.get("VULNSCOPE_ORACLE_SHARED") == "1":
@@ -419,7 +437,7 @@ def oracle_dsn(request: pytest.FixtureRequest, stress_env: StressEnv) -> str:
 # --------------------------------------------------------------------------- subprocess helpers
 def _alembic_env(env: StressEnv, db: ScratchDb, extra: dict[str, str] | None) -> dict[str, str]:
     e = dict(os.environ)
-    e[ADMIN_ENV] = db.admin_url
+    e[ADMIN_ENV] = reveal(db.admin_url)
     e["PYTHONPATH"] = str(REPO_ROOT / "src")
     e.update(extra or {})
     return e
@@ -533,6 +551,24 @@ def _covered(item: pytest.Item) -> bool:
     return item.get_closest_marker("integration") is not None or "stress/db/" in item.nodeid.replace("\\", "/")
 
 
+def _scrub_report(rep: Any) -> None:
+    """GR-STR-31 backstop: nothing secret-shaped may reach the terminal or the JUnit writer, whatever
+    produced it (fixture values, assertion operands, exception text, captured output, properties)."""
+    lr = rep.longrepr
+    if isinstance(lr, tuple):
+        new_t = tuple(scrub(x) if isinstance(x, str) else x for x in lr)
+        if new_t != lr:
+            rep.longrepr = new_t
+    elif lr is not None:
+        text = lr if isinstance(lr, str) else str(lr)
+        clean = scrub(text)
+        if clean != text:
+            rep.longrepr = clean
+    rep.sections = [(n, scrub(c)) for n, c in rep.sections]
+    if hasattr(rep, "user_properties"):
+        rep.user_properties = [(k, scrub(v) if isinstance(v, str) else v) for k, v in rep.user_properties]
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[Any]) -> Iterator[None]:
     outcome = yield
@@ -541,6 +577,13 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[Any]) -> 
         reason = rep.longrepr[2] if isinstance(rep.longrepr, tuple) else str(rep.longrepr)
         rep.outcome = "failed"
         rep.longrepr = f"SKIP FORBIDDEN under VULNSCOPE_REQUIRE_INTEGRATION=1: {reason}"
+    _scrub_report(rep)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_make_collect_report(collector: Any) -> Iterator[None]:
+    outcome = yield
+    _scrub_report(outcome.get_result())  # type: ignore[attr-defined]
 
 
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:

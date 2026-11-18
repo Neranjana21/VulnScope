@@ -71,10 +71,16 @@ def test_expected_red_file_is_well_formed() -> None:
             assert reason.strip(), f"{node}: a non-GREEN outcome needs a reason"
 
 
-def test_expected_red_covers_every_stress_db_node_and_nothing_stale() -> None:
-    collected = kit.collect_nodes(["tests/stress/db"], integration_only=False)
-    listed = {n for n, _, _ in _expected_rows() if n.startswith("tests/stress/db/")}
-    assert collected, "collect-only returned nothing for tests/stress/db"
+def test_expected_red_covers_every_collected_node_and_nothing_stale() -> None:
+    """Phase R runs tests/stress/db, tests/integration and tests/unit/{db,infra}: every collected node
+    needs a row, and no row may be stale (MISSING: rows are for nodes that must be absent)."""
+    collected = kit.collect_nodes(
+        ["tests/stress/db", "tests/integration", "tests/unit/db", "tests/unit/infra"],
+        integration_only=False,
+    )
+    rows = _expected_rows()
+    listed = {n for n, _, reason in rows if not reason.startswith("MISSING:")}
+    assert collected, "collect-only returned nothing"
     assert not collected - listed, f"nodes missing from expected_red.txt: {sorted(collected - listed)[:8]}"
     assert not listed - collected, f"stale expected_red.txt entries: {sorted(listed - collected)[:8]}"
 

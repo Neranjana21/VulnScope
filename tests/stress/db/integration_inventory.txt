@@ -1,6 +1,7 @@
 # Required node ids for -m integration over tests/integration and tests/stress/db (GR-STR-4, GR-STR-22).
 # Stress-tester owned (R1). Lines ending in [*] match one or more parametrised nodes.
-# Implementer nodes that do not exist yet are pinned in docs/gates/slice0-grants-stress-pins.md.
+# The pinned implementer names (docs/gates/slice0-grants-stress-pins.md) are listed as well as the
+# collected ids, so renaming or deleting an implementer test fails test_inventory.
 tests/integration/db/test_app_role_crud_on_ordinary_tables.py::test_app_role_cannot_create_or_alter_tables
 tests/integration/db/test_app_role_crud_on_ordinary_tables.py::test_app_role_crud_on_ordinary_tables
 tests/integration/db/test_downgrade_guard.py::test_downgrade_allowed_when_marked
@@ -9,6 +10,11 @@ tests/integration/db/test_grants_idempotent.py::test_alembic_upgrade_head_rerun_
 tests/integration/db/test_grants_idempotent.py::test_app_role_member_of_migrator_is_rejected
 tests/integration/db/test_grants_idempotent.py::test_apply_statements_twice_is_idempotent
 tests/integration/db/test_grants_idempotent.py::test_owner_drift_is_healed[*]
+tests/integration/db/test_grants_idempotent.py::test_owner_drift_is_healed[column_grant_ledger]
+tests/integration/db/test_grants_idempotent.py::test_owner_drift_is_healed[grant_option]
+tests/integration/db/test_grants_idempotent.py::test_owner_drift_is_healed[ledger_update_delete_truncate]
+tests/integration/db/test_grants_idempotent.py::test_owner_drift_is_healed[public_all_alembic_version]
+tests/integration/db/test_grants_idempotent.py::test_owner_drift_is_healed[public_all_chain_heads]
 tests/integration/db/test_grants_idempotent.py::test_third_grantor_drift_is_detected
 tests/integration/db/test_ledger_mutation_trigger.py::test_disable_trigger_break_glass_path_is_documented_limitation
 tests/integration/db/test_ledger_mutation_trigger.py::test_trigger_blocks_mutation_for_owner_role[DELETE FROM ledger_entries WHERE chain_id = :chain_id]
@@ -31,6 +37,26 @@ tests/integration/db/test_ledger_role_restricted.py::test_app_role_cannot_mutate
 tests/integration/db/test_missing_role_end_to_end.py::test_upgrade_without_app_role_fails_cleanly
 tests/integration/db/test_require_app_role.py::test_require_app_role_accepts_plain_login_role
 tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[*]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[attr_bypassrls]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[attr_createdb]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[attr_createrole]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[attr_nologin]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[attr_replication]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[create_on_database]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[create_on_schema_public]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[member_of_migrator]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[member_of_scratch_group]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[member_pg_execute_server_program]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[member_pg_maintain]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[member_pg_read_all_data]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[member_pg_read_server_files]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[member_pg_signal_backend]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[member_pg_write_all_data]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[member_pg_write_server_files]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[migrator_itself]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[nonexistent_role]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[owns_schema]
+tests/integration/db/test_require_app_role.py::test_require_app_role_rejects[owns_table]
 tests/integration/models/test_ledger_entries_unique_constraint.py::test_duplicate_chain_id_seq_raises_integrity_error
 tests/integration/models/test_migration_roundtrip.py::test_upgrade_after_downgrade_passes_verify
 tests/integration/models/test_migration_roundtrip.py::test_upgrade_head_then_downgrade_base_roundtrips

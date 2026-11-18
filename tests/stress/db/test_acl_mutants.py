@@ -106,12 +106,12 @@ def mutant_db(scratch_manager: kit.ScratchManager, stress_env: kit.StressEnv) ->
 class Armed:
     db: kit.ScratchDb
     role: str
-    password: str
+    password: kit.Secret
     mutant: Mutant | None
     params: dict[str, str]
 
     @property
-    def role_dsn(self) -> str:
+    def role_dsn(self) -> kit.Secret:
         return kit.to_dsn(kit.with_user(self.db.app_url, self.role, self.password))
 
 
