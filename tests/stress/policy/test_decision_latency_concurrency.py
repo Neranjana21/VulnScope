@@ -43,7 +43,7 @@ from __future__ import annotations
 import statistics
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from vulnscope.policy.decide import decide
 from vulnscope.policy.ratelimit import InMemoryRateLimitStore
@@ -56,14 +56,16 @@ CI_SLACK_MULTIPLIER = 10  # generous slack for shared/virtualised CI hardware;
 # record the MEASURED number in the post-gate regardless of pass/fail.
 
 
-def test_decide_p99_latency_under_concurrency(clock_factory, resolver_factory, engagement_factory) -> None:
+def test_decide_p99_latency_under_concurrency(
+    clock_factory, resolver_factory, engagement_factory
+) -> None:
     """Many threads call decide() concurrently, each with its own
     engagement/host pair but a single shared InMemoryRateLimitStore
     instance. Every call must return the correct, engagement-specific
     decision (a shared-mutable-state bug would show up as cross-talk, not
     just as slow latency) and the overall p99 is measured against R6.
     """
-    clock = clock_factory(datetime(2026, 1, 15, tzinfo=timezone.utc))
+    clock = clock_factory(datetime(2026, 1, 15, tzinfo=UTC))
     store = InMemoryRateLimitStore()  # one shared instance, many threads
 
     cases = []
@@ -118,14 +120,16 @@ def test_decide_p99_latency_under_concurrency(clock_factory, resolver_factory, e
     )
 
 
-def test_rate_limit_store_no_cross_engagement_leakage(clock_factory, resolver_factory, engagement_factory) -> None:
+def test_rate_limit_store_no_cross_engagement_leakage(
+    clock_factory, resolver_factory, engagement_factory
+) -> None:
     """A single InMemoryRateLimitStore instance is shared across many
     concurrently-decided engagements; one engagement's target hitting its
     rate ceiling must never throttle a different engagement's target (which
     would indicate a rate-limit-key collision / shared-mutable-state bug,
     D5).
     """
-    clock = clock_factory(datetime(2026, 1, 15, tzinfo=timezone.utc))
+    clock = clock_factory(datetime(2026, 1, 15, tzinfo=UTC))
     store = InMemoryRateLimitStore()
 
     busy_host = "busy.lab.test"

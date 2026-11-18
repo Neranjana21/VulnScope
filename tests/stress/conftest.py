@@ -11,6 +11,11 @@ Until the corresponding production module (policy/, ledger/, api/) exists,
 importing from `vulnscope.*` in these test files raises
 ImportError/ModuleNotFoundError at collection time. That is the EXPECTED
 state right now (pre-implementation), not a bug in the test.
+
+EXCEPTION (docs/gates/slice0-grants-stress-pins.md, GR-STR-20): tests/stress/db/ follows the
+OPPOSITE rule. Nothing there may fail at collection; not-yet-existing modules are imported lazily
+inside test bodies so Phase R yields a per-test red list, and test_import_guard.py enforces it.
+Missing-env skips there are converted into failures when VULNSCOPE_REQUIRE_INTEGRATION=1.
 """
 from __future__ import annotations
 

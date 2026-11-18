@@ -9,7 +9,7 @@ Supports: Slice 0 AC1, AC2.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -22,10 +22,12 @@ from vulnscope.policy.types import Action, RuleId
 def _decide_for(clock_factory, resolver_factory, engagement_factory, host, ip, allow, deny):
     engagement = engagement_factory(scope_allow=allow, scope_deny=deny)
     resolver = resolver_factory({host: (ip,)})
-    clock = clock_factory(datetime(2026, 1, 15, tzinfo=timezone.utc))
+    clock = clock_factory(datetime(2026, 1, 15, tzinfo=UTC))
     store = InMemoryRateLimitStore()
     action = Action(kind="http", target=host, adapter="stress-test")
-    return decide(action, engagement, clock.now(), resolver=resolver, clock=clock, rate_limit_store=store)
+    return decide(
+        action, engagement, clock.now(), resolver=resolver, clock=clock, rate_limit_store=store
+    )
 
 
 @given(
@@ -53,7 +55,9 @@ def test_nested_cidr_exclusion_always_wins(
         f"{ip}/32",
     )
 
-    decision = _decide_for(clock_factory, resolver_factory, engagement_factory, host, ip, allow, deny)
+    decision = _decide_for(
+        clock_factory, resolver_factory, engagement_factory, host, ip, allow, deny
+    )
     assert not decision.allowed
     assert decision.rule_id == RuleId.EXCLUDED
 
@@ -83,7 +87,8 @@ def test_wildcard_allow_apex_deny(clock_factory, resolver_factory, engagement_fa
     assert apex_decision.rule_id in (RuleId.OUT_OF_SCOPE, RuleId.EXCLUDED)
 
     sub_decision = _decide_for(
-        clock_factory, resolver_factory, engagement_factory, "sub.lab.test", "192.0.2.2", allow, deny
+        clock_factory, resolver_factory, engagement_factory,
+        "sub.lab.test", "192.0.2.2", allow, deny,
     )
     assert sub_decision.allowed
     assert sub_decision.rule_id == RuleId.ALLOW
@@ -106,6 +111,7 @@ def test_wildcard_allow_apex_also_allowed_apex_excluded_by_name(
     assert apex_decision.rule_id == RuleId.EXCLUDED
 
     sub_decision = _decide_for(
-        clock_factory, resolver_factory, engagement_factory, "sub.lab.test", "192.0.2.2", allow, deny
+        clock_factory, resolver_factory, engagement_factory,
+        "sub.lab.test", "192.0.2.2", allow, deny,
     )
     assert sub_decision.allowed

@@ -11,13 +11,23 @@ nightly job (`VULNSCOPE_STRESS_N=1000000 pytest ...`), not on every CI run.
 The post-gate file must record BOTH the CI-scale number and, whenever a
 full-scale run is actually executed, the 1e5/1e6 number -- do not silently
 substitute one for the other in the report.
+
+Async update (docs/gates/slice0-pre-stress-recheck.md round 3): `ChainBackend`
+(docs/gates/slice0-plan.md §3.2/§3.7/§3.8) is now an async Protocol; this
+file is single-threaded/sequential (no concurrent writers), so the
+async-vs-sync distinction here is purely mechanical (`await` each call,
+`async def` the test/helper functions) -- it does not affect the SEC-5
+`UNIQUE(chain_id, seq)` constraint (nothing concurrent to exercise it) or
+any throughput/memory assertion's meaning, only how the calls are made.
 """
 from __future__ import annotations
 
 import os
 import time
 import tracemalloc
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+import pytest
 
 from vulnscope.ledger.memory_backend import InMemoryChainBackend
 from vulnscope.ledger.verify import verify
@@ -27,22 +37,23 @@ N = int(os.environ.get("VULNSCOPE_STRESS_N", DEFAULT_N))
 CATALOGUE_TARGETS = (100_000, 1_000_000)  # docs/stress-tests.md; not run by default
 
 
-def _fill(n: int):
+async def _fill(n: int):
     backend = InMemoryChainBackend()
     chain_id = "engagement:stress-scale"
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for i in range(n):
-        backend.append(chain_id, "policy.decision", "system", {"i": i}, now)
+        await backend.append(chain_id, "policy.decision", "system", {"i": i}, now)
     return backend, chain_id
 
 
-def test_append_and_verify_throughput_at_configured_scale() -> None:
+@pytest.mark.asyncio
+async def test_append_and_verify_throughput_at_configured_scale() -> None:
     start = time.perf_counter()
-    backend, chain_id = _fill(N)
+    backend, chain_id = await _fill(N)
     append_elapsed = time.perf_counter() - start
 
     start = time.perf_counter()
-    result = verify(chain_id, backend)
+    result = await verify(chain_id, backend)
     verify_elapsed = time.perf_counter() - start
 
     assert result.result == "ok"
@@ -58,7 +69,8 @@ def test_append_and_verify_throughput_at_configured_scale() -> None:
     )
 
 
-def test_verify_memory_is_sublinear_in_record_count() -> None:
+@pytest.mark.asyncio
+async def test_verify_memory_is_sublinear_in_record_count() -> None:
     """verify() must not need O(all records) of *extra* retained memory
     beyond streaming through the chain once (docs/stress-tests.md: 'verify
     memory is bounded'). Approximated here by comparing peak traced memory
@@ -79,14 +91,14 @@ def test_verify_memory_is_sublinear_in_record_count() -> None:
     large_n = N
 
     tracemalloc.start()
-    backend_small, chain_small = _fill(small_n)
-    verify(chain_small, backend_small)
+    backend_small, chain_small = await _fill(small_n)
+    await verify(chain_small, backend_small)
     _, peak_small = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
     tracemalloc.start()
-    backend_large, chain_large = _fill(large_n)
-    verify(chain_large, backend_large)
+    backend_large, chain_large = await _fill(large_n)
+    await verify(chain_large, backend_large)
     _, peak_large = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 

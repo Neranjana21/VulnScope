@@ -53,7 +53,7 @@ relies on `scope.allow` being resolution-sensitive.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from vulnscope.policy.decide import decide
 from vulnscope.policy.ratelimit import InMemoryRateLimitStore
@@ -66,7 +66,7 @@ def test_decide_resolves_hostname_at_most_once_per_call(
     host = "pinned.lab.test"
     engagement = engagement_factory(scope_allow=(host,))
     resolver = resolver_factory({host: ("192.0.2.10",)})
-    clock = clock_factory(datetime(2026, 1, 15, tzinfo=timezone.utc))
+    clock = clock_factory(datetime(2026, 1, 15, tzinfo=UTC))
     store = InMemoryRateLimitStore()
 
     action = Action(kind="http", target=host, adapter="stress-test")
@@ -93,13 +93,14 @@ def test_resolution_change_between_two_sequential_decisions_is_not_cached(
     """
     host = "shifting.lab.test"
     engagement = engagement_factory(scope_allow=(host,))
-    clock = clock_factory(datetime(2026, 1, 15, tzinfo=timezone.utc))
+    clock = clock_factory(datetime(2026, 1, 15, tzinfo=UTC))
     store = InMemoryRateLimitStore()
     action = Action(kind="http", target=host, adapter="stress-test")
 
     first_resolver = resolver_factory({host: ("192.0.2.11",)})
     first_decision = decide(
-        action, engagement, clock.now(), resolver=first_resolver, clock=clock, rate_limit_store=store
+        action, engagement, clock.now(),
+        resolver=first_resolver, clock=clock, rate_limit_store=store,
     )
     assert first_decision.allowed
     assert first_decision.resolved_ips == ("192.0.2.11",)
@@ -108,7 +109,8 @@ def test_resolution_change_between_two_sequential_decisions_is_not_cached(
     # the always-deny link-local metadata range (D7).
     second_resolver = resolver_factory({host: ("169.254.169.254",)})
     second_decision = decide(
-        action, engagement, clock.now(), resolver=second_resolver, clock=clock, rate_limit_store=store
+        action, engagement, clock.now(),
+        resolver=second_resolver, clock=clock, rate_limit_store=store,
     )
     assert not second_decision.allowed
     assert second_decision.rule_id == RuleId.DENY_ALWAYS_LIST
@@ -130,7 +132,7 @@ def test_cname_into_excluded_private_range_is_denied_by_scope_deny_step(
     host = "cname-source.lab.test"
     engagement = engagement_factory(scope_allow=(host,), scope_deny=("10.90.0.0/24",))
     resolver = resolver_factory({host: ("10.90.0.5",)})
-    clock = clock_factory(datetime(2026, 1, 15, tzinfo=timezone.utc))
+    clock = clock_factory(datetime(2026, 1, 15, tzinfo=UTC))
     store = InMemoryRateLimitStore()
     action = Action(kind="http", target=host, adapter="stress-test")
 
@@ -171,7 +173,7 @@ def test_cname_into_excluded_public_range_must_still_be_denied(
     host = "cname-source-public.lab.test"
     engagement = engagement_factory(scope_allow=(host,), scope_deny=("203.0.113.0/24",))
     resolver = resolver_factory({host: ("203.0.113.5",)})
-    clock = clock_factory(datetime(2026, 1, 15, tzinfo=timezone.utc))
+    clock = clock_factory(datetime(2026, 1, 15, tzinfo=UTC))
     store = InMemoryRateLimitStore()
     action = Action(kind="http", target=host, adapter="stress-test")
 

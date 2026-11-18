@@ -44,7 +44,7 @@ file, so the new step 7 has nothing to match here either.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -57,7 +57,7 @@ MAX_HOPS = 20  # caller-side cap a real redirect follower would enforce
 
 
 def _run_chain(clock_factory, resolver_factory, engagement_factory, hosts, allowed_hosts):
-    clock = clock_factory(datetime(2026, 1, 15, tzinfo=timezone.utc))
+    clock = clock_factory(datetime(2026, 1, 15, tzinfo=UTC))
     store = InMemoryRateLimitStore()
     engagement = engagement_factory(scope_allow=tuple(allowed_hosts))
     resolver = resolver_factory({h: (f"192.0.2.{i % 250 + 1}",) for i, h in enumerate(hosts)})
@@ -83,7 +83,9 @@ def _run_chain(clock_factory, resolver_factory, engagement_factory, hosts, allow
     return results
 
 
-def test_long_allowed_chain_bounded_by_hop_cap(clock_factory, resolver_factory, engagement_factory) -> None:
+def test_long_allowed_chain_bounded_by_hop_cap(
+    clock_factory, resolver_factory, engagement_factory
+) -> None:
     """depth is one past MAX_HOPS to prove the cap -- not decide() itself --
     is what stops the walk, even though every hop is individually ALLOW."""
     hosts = [f"ok{i}.lab.test" for i in range(MAX_HOPS + 1)]
@@ -98,7 +100,9 @@ def test_first_hop_denied_reports_out_of_scope_not_redirect_denied(
 ) -> None:
     """Hop 0 is never a redirect hop (is_redirect_hop=False) -- a denial
     there must keep its own rule_id, not REDIRECT_DENIED."""
-    results = _run_chain(clock_factory, resolver_factory, engagement_factory, ["denied.lab.test"], set())
+    results = _run_chain(
+        clock_factory, resolver_factory, engagement_factory, ["denied.lab.test"], set()
+    )
     assert results == [RuleId.OUT_OF_SCOPE]
 
 
@@ -119,7 +123,9 @@ def test_redirect_loop_is_bounded_by_caller_hop_cap(
     decide() itself has no chain memory (stateless per call, D5)."""
     loop_hosts = (["a.lab.test", "b.lab.test"] * (MAX_HOPS * 5))[: MAX_HOPS * 5]
     allowed_hosts = {"a.lab.test", "b.lab.test"}
-    results = _run_chain(clock_factory, resolver_factory, engagement_factory, loop_hosts, allowed_hosts)
+    results = _run_chain(
+        clock_factory, resolver_factory, engagement_factory, loop_hosts, allowed_hosts
+    )
     assert len(results) == MAX_HOPS
     assert all(r == RuleId.ALLOW for r in results)
 
@@ -145,7 +151,9 @@ def test_property_chain_stops_at_first_denied_hop(
             first_false = i
 
     capped_hosts = hosts[:MAX_HOPS]
-    results = _run_chain(clock_factory, resolver_factory, engagement_factory, capped_hosts, allowed_hosts)
+    results = _run_chain(
+        clock_factory, resolver_factory, engagement_factory, capped_hosts, allowed_hosts
+    )
 
     if first_false is None or first_false >= MAX_HOPS:
         assert len(results) == len(capped_hosts)

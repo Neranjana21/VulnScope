@@ -14,7 +14,7 @@ independent of whether tests/stress/policy/ is set up as a Python package.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -65,7 +65,7 @@ class MapResolver:
 
 
 def _make_engagement(**overrides: Any) -> EngagementPolicyView:
-    base_window_start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    base_window_start = datetime(2026, 1, 1, tzinfo=UTC)
     defaults: dict[str, Any] = dict(
         engagement_id="11111111-1111-7111-8111-111111111111",
         org_id="22222222-2222-7222-8222-222222222222",
@@ -85,7 +85,7 @@ def _make_engagement(**overrides: Any) -> EngagementPolicyView:
 
 @pytest.fixture
 def fixed_clock() -> FixedClock:
-    return FixedClock(datetime(2026, 1, 15, tzinfo=timezone.utc))
+    return FixedClock(datetime(2026, 1, 15, tzinfo=UTC))
 
 
 @pytest.fixture

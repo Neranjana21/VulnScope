@@ -1,0 +1,68 @@
+# docker-compose.dev.yml -- dev/test PostgreSQL only (docs/gates/slice0-plan.md
+# Section 3.9, Design B). Not started automatically by any CI job or test in
+# this repo; a developer brings it up explicitly with `docker compose -f
+# docker-compose.dev.yml up`. Entirely separate from the product's eventual
+# control/scan two-network deployment topology (architecture.md Section 6).
+services:
+  postgres:
+    image: postgres@sha256:0d938e975177bef9f1f61f3f9dbcf2e0aa0a139568f66d3415ed8892eb97f6ac  # PostgreSQL 17.12
+    environment:
+      POSTGRES_USER: vulnscope_migrator        # becomes the cluster's initial superuser -- see note below
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}    # from an uncommitted .env; never in this file or the repo
+      POSTGRES_DB: vulnscope
+      VULNSCOPE_APP_PASSWORD: ${VULNSCOPE_APP_PASSWORD}  # source for vulnscope_app's password, read by the init wrapper script below; also from the uncommitted .env
+    ports:
+      - "127.0.0.1:5432:5432"                    # loopback only, never 0.0.0.0, even for local dev
+    networks:
+      - dbnet                                     # explicit, named network -- see note below
+    volumes:
+      - vulnscope_pg_data:/var/lib/postgresql/data
+      - ./infra/postgres/00-init-roles.sh:/docker-entrypoint-initdb.d/00-init-roles.sh:ro
+      - ./infra/postgres/init-roles.sql:/opt/vulnscope/init-roles.sql:ro  # mounted OUTSIDE /docker-entrypoint-initdb.d/, see note below
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vulnscope_migrator -d vulnscope"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+networks:
+  dbnet: {}    # only `postgres` is attached; see note below
+
+volumes:
+  vulnscope_pg_data:    # named volume: dev data persists across `docker compose restart`
+
+# Note on POSTGRES_USER=vulnscope_migrator: the official Postgres image
+# always makes whatever user POSTGRES_USER names the cluster's *initial
+# superuser* at first boot -- that is stronger than "schema owner." For
+# this dev-only convenience setup that is acceptable: init-roles.sql then
+# uses that superuser's elevated rights to create the restricted
+# vulnscope_app role. A real production deployment would instead
+# provision vulnscope_migrator as a non-superuser schema owner through a
+# managed Postgres service's own role-creation path -- out of scope for
+# this dev-only compose file.
+#
+# Network: Postgres is attached to an explicit, named network (dbnet)
+# rather than Compose's implicit default network. Host-port binding to
+# 127.0.0.1:5432:5432 blocks other hosts/other host-level processes, but
+# does NOT, and architecturally cannot, restrict container-to-container
+# reachability on a shared Docker bridge network. Design constraint,
+# stated explicitly: lab/target containers and any future scan-network
+# service must never be attached to dbnet; they get their own network,
+# per architecture.md Section 6.
+#
+# init-roles.sql is NOT run via Alembic (see alembic/env.py) and is NOT
+# mounted directly under /docker-entrypoint-initdb.d/ -- the official
+# Postgres image auto-executes every .sql file it finds there on its own,
+# independently of what 00-init-roles.sh already did, which would run
+# init-roles.sql a second time with no VULNSCOPE_APP_PASSWORD variable
+# supplied and fail at boot. init-roles.sql is mounted to
+# /opt/vulnscope/init-roles.sql instead, a path with no special meaning to
+# the Postgres entrypoint, and is invoked exactly once by
+# 00-init-roles.sh's own `psql -f` call.
+#
+# Fresh-volume caveat: /docker-entrypoint-initdb.d/ scripts only run
+# against an empty data directory on first container startup. A developer
+# upgrading from an older local volume created before these roles existed
+# should run `docker compose -f docker-compose.dev.yml down -v && docker
+# compose -f docker-compose.dev.yml up` once, rather than relying on this
+# file to add idempotent re-run logic.
