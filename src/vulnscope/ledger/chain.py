@@ -36,7 +36,7 @@ class ChainBackend(Protocol):
         ts: datetime,
     ) -> LedgerEntry: ...
 
-    async def read(
+    def read(
         self, chain_id: str, start_seq: int = 0, limit: int | None = None
     ) -> AsyncIterator[LedgerEntry]: ...
 
