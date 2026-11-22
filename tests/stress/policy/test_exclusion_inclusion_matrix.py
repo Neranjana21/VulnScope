@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from vulnscope.policy.decide import decide
@@ -34,7 +34,12 @@ def _decide_for(clock_factory, resolver_factory, engagement_factory, host, ip, a
     third_octet=st.integers(min_value=0, max_value=255),
     fourth_octet=st.integers(min_value=1, max_value=254),
 )
-@settings(deadline=None, max_examples=100)
+@settings(
+    deadline=None,
+    max_examples=100,
+    # the fixtures are stateless factories (they return a class or function, never shared state)
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
 def test_nested_cidr_exclusion_always_wins(
     third_octet: int, fourth_octet: int, clock_factory, resolver_factory, engagement_factory
 ) -> None:
@@ -48,7 +53,7 @@ def test_nested_cidr_exclusion_always_wins(
     """
     ip = f"10.{third_octet}.{fourth_octet}.1"
     host = f"host-{third_octet}-{fourth_octet}.lab.test"
-    allow = ("10.0.0.0/8",)
+    allow = ("10.0.0.0/8", host)
     deny = (
         f"10.{third_octet}.0.0/16",
         f"10.{third_octet}.{fourth_octet}.0/24",
@@ -60,6 +65,65 @@ def test_nested_cidr_exclusion_always_wins(
     )
     assert not decision.allowed
     assert decision.rule_id == RuleId.EXCLUDED
+
+
+@given(
+    third_octet=st.integers(min_value=0, max_value=255),
+    fourth_octet=st.integers(min_value=1, max_value=253),
+)
+@settings(
+    deadline=None,
+    max_examples=100,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+def test_nested_cidr_control_outside_exclusion_is_allowed(
+    third_octet: int, fourth_octet: int, clock_factory, resolver_factory, engagement_factory
+) -> None:
+    """STR-A1 control case (owner-approved 2026-11-19). Same scope as
+    test_nested_cidr_exclusion_always_wins: allow = (10.0.0.0/8, host), deny =
+    nested /16, /24, /32 around 10.<t>.<f>.1. An address inside 10.0.0.0/8 that
+    lies OUTSIDE every deny entry must be ALLOWED in the standard profile (the
+    10.0.0.0/8 entry is a subnet of one private block, so it opts in per
+    task-a-design.md section 2.2). This proves the exclusion test above is
+    red/green for the right reason (exclusion is what denies, not a blanket
+    private-range or scope denial) and that step 4 is not weakened: the host
+    name itself is still listed explicitly in allow.
+    """
+    excluded_ip = f"10.{third_octet}.{fourth_octet}.1"
+    deny = (
+        f"10.{third_octet}.0.0/16",
+        f"10.{third_octet}.{fourth_octet}.0/24",
+        f"{excluded_ip}/32",
+    )
+    other_third = (third_octet + 1) % 256  # a different /16, so outside all three entries
+    ip = f"10.{other_third}.{fourth_octet}.1"
+    host = f"control-{third_octet}-{fourth_octet}.lab.test"
+    allow = ("10.0.0.0/8", host)
+
+    decision = _decide_for(
+        clock_factory, resolver_factory, engagement_factory, host, ip, allow, deny
+    )
+    assert decision.allowed, "address outside the exclusion must be allowed (control)"
+    assert decision.rule_id == RuleId.ALLOW
+    assert ip in decision.resolved_ips
+
+
+def test_nested_cidr_control_hostname_needs_its_own_allow_entry(
+    clock_factory, resolver_factory, engagement_factory
+) -> None:
+    """STR-A1 control, step 4 not weakened: with ONLY the 10.0.0.0/8 CIDR in
+    allow (the original line-51 tuple), a hostname is not covered by a CIDR
+    entry (task-a-design.md section 2 step 4 / 8.1) and is denied OUT_OF_SCOPE,
+    even though its resolved address is inside 10.0.0.0/8 and outside every
+    exclusion. This is why the allow tuple of the exclusion test lists the host.
+    """
+    host = "control-only-cidr.lab.test"
+    decision = _decide_for(
+        clock_factory, resolver_factory, engagement_factory, host, "10.9.9.1",
+        ("10.0.0.0/8",), ("10.5.0.0/16",),
+    )
+    assert not decision.allowed
+    assert decision.rule_id == RuleId.OUT_OF_SCOPE
 
 
 def test_wildcard_allow_apex_deny(clock_factory, resolver_factory, engagement_factory) -> None:
