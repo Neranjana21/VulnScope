@@ -180,7 +180,8 @@ def test_resolver_answer_with_embedded_metadata_denied() -> None:
     d, _ = run_decide(H, allow=(H,), table={H: ("64:ff9b::a9fe:a9fe",)})
     assert d.rule_id == RuleId.DENY_ALWAYS_LIST
     d, _ = run_decide(H, allow=(H,), deny=("203.0.113.0/24",), table={H: ("64:ff9b::cb00:7105",)})
-    assert d.rule_id == RuleId.EXCLUDED
+    # whole embedded ranges are always-deny (2026-11-23), so this is no longer EXCLUDED
+    assert d.rule_id == RuleId.DENY_ALWAYS_LIST
 
 
 def test_unparseable_targets_deny_and_never_echo() -> None:

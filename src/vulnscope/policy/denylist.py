@@ -42,7 +42,18 @@ D7_AMENDMENT_1_NETWORKS: tuple[IPNetwork, ...] = (
     ipaddress.ip_network("fec0::/10"),  # deprecated site-local
 )
 
-ALWAYS_DENY_NETWORKS: tuple[IPNetwork, ...] = D7_LITERAL_NETWORKS + D7_AMENDMENT_1_NETWORKS
+# Owner decision 2026-11-23: IPv4-embedding IPv6 ranges are denied WHOLE, whatever IPv4 they carry.
+# IPv4-compatible ::/96 is split so that ``::1`` (loopback, governed by the lab profile) is skipped;
+# ``::`` is already a D7 literal, so the split also skips ``::/127`` (``::`` and ``::1``).
+D7_EMBEDDED_NETWORKS: tuple[IPNetwork, ...] = (
+    ipaddress.ip_network("64:ff9b::/96"),  # NAT64
+    ipaddress.ip_network("2002::/16"),  # 6to4
+    *sorted(ipaddress.IPv6Network("::/96").address_exclude(ipaddress.IPv6Network("::/127"))),
+)
+
+ALWAYS_DENY_NETWORKS: tuple[IPNetwork, ...] = (
+    D7_LITERAL_NETWORKS + D7_AMENDMENT_1_NETWORKS + D7_EMBEDDED_NETWORKS
+)
 ALWAYS_DENY_EXACT_NAMES: frozenset[str] = frozenset({"metadata", "instance-data"})
 # The name itself and any subdomain of it.
 ALWAYS_DENY_NAME_SUFFIXES: tuple[str, ...] = (
