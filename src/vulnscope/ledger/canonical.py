@@ -13,6 +13,11 @@ Two paths, deliberately separate:
   backend runs it first, so hostile target data can never make a decision unrecordable (rule 8),
   and a header-shaped secret is redacted before it is stored (rule 6). All data from a target is
   hostile (rule 9): no user-defined method is ever called, only exact type tests.
+
+Depth: the payload root container counts as depth 1, so 16 nested containers are accepted and 17
+are rejected (``MAX_DEPTH``). Header pairs: a two-item list or tuple ``[name, value]`` whose name
+is on ``BLOCKED_KEYS`` (exact, case-insensitive) has its value redacted like a dict key would be,
+at any depth; pairs with other names are preserved.
 """
 from __future__ import annotations
 
@@ -429,7 +434,7 @@ def _is_scalar_value(v: object) -> bool:
 
 
 class _Frame:
-    __slots__ = ("items", "i", "out", "path", "depth", "redact", "used", "cid")
+    __slots__ = ("items", "i", "out", "path", "depth", "redact", "used", "cid", "pair")
 
     def __init__(
         self,
@@ -448,6 +453,7 @@ class _Frame:
         self.redact = redact
         self.used: set[str] = set()
         self.cid = cid
+        self.pair = False  # a [blocked-name, value] header pair: the value is redacted
 
 
 class _Dropped:
@@ -592,7 +598,11 @@ class _Sanitizer:
             items = items[:limit]
             self.rec(path, "dropped", count=total - limit)
         self.open_ids.add(cid)
-        return _Frame(items, out, path, depth, redact, cid)
+        frame = _Frame(items, out, path, depth, redact, cid)
+        frame.pair = (
+            not isinstance(out, dict) and total == 2 and len(items) == 2 and _is_blocked(items[0])
+        )
+        return frame
 
     def convert_child(
         self, v: object, path: str, redact: bool, depth: int
@@ -631,7 +641,7 @@ class _Sanitizer:
                 v = item
                 key = ""
                 child_path = f"{f.path}[{index}]"[:_PATH_CAP]
-                redact = f.redact
+                redact = f.redact or (f.pair and index == 1)
             res = self.convert_child(v, child_path, redact, f.depth + 1)
             if isinstance(res, _Dropped):
                 self.rec(f.path, "dropped", count=len(f.items) - index)

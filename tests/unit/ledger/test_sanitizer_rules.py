@@ -81,9 +81,10 @@ def test_substring_lookalikes_are_preserved_verbatim(payload: dict[str, object])
     assert _san(payload) == payload
 
 
-def test_header_lists_that_are_not_keyed_are_not_redacted_documented_limit() -> None:
-    payload = {"headers": [["Authorization", "Bearer x"]]}
-    assert _san(payload) == payload
+def test_header_pairs_are_redacted_and_other_pairs_preserved() -> None:
+    out = _san({"headers": [["Authorization", "Bearer x"], ("Accept", "a")], "p": ["token", "t"]})
+    assert out["headers"] == [["Authorization", "[redacted]"], ["Accept", "a"]]
+    assert out["p"] == ["token", "[redacted]"] and out["sanitized"] is True
 
 
 # ------------------------------------------------------------------ R2.2 idempotence of strings
