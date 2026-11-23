@@ -46,7 +46,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from vulnscope.policy.decide import decide
@@ -131,7 +131,12 @@ def test_redirect_loop_is_bounded_by_caller_hop_cap(
 
 
 @given(hop_outcomes=st.lists(st.booleans(), min_size=1, max_size=200))
-@settings(deadline=None, max_examples=50)
+@settings(
+    deadline=None,
+    max_examples=50,
+    # the fixtures are stateless factories (they return a class or function, never shared state)
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
 def test_property_chain_stops_at_first_denied_hop(
     hop_outcomes: list[bool], clock_factory, resolver_factory, engagement_factory
 ) -> None:

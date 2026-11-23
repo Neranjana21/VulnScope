@@ -43,9 +43,9 @@ Fails with `REVOKED`/`EXPIRED`/`NOT_FOUND` when the engagement is not active. `w
 ## Policy decision
 ```json
 {"allowed": false, "reason": "string", "rule_id": "DENY_ALWAYS_LIST", "policy_version": "1.0.0+<ruleset-hash>",
- "action": {"kind": "http|tcp|dns", "target": "...", "resolved_ips": [], "adapter": "..."}, "ts": "ISO8601"}
+ "action": {"kind": "http|tcp|dns", "scheme": "http|https|null", "host": "...", "port": 0, "target_sha256": "hex", "resolved_ips": [], "adapter": "...", "is_redirect_hop": false}, "ts": "ISO8601"}
 ```
-`policy_version` is the semver of the always-deny list and rule set plus a hash of the loaded configuration. Every decision, allow or deny, becomes a ledger entry.
+`policy_version` is the semver of the always-deny list and rule set plus a hash of the loaded configuration. Every decision, allow or deny, becomes a ledger entry. The recorded `action` never contains the raw target string (it may carry credentials in userinfo, query or fragment): it holds the canonical `scheme`, `host` and `port` plus `target_sha256` of the raw string. A target that cannot be parsed records `target_unparseable: true`, `target_length` and `target_sha256` instead.
 
 ## Ledger entry (one chain per engagement; intake chain per org)
 ```json
