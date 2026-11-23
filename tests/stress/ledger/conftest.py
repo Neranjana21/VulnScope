@@ -31,12 +31,12 @@ Protocol they call is async).
 """
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncIterator, Mapping
 from datetime import datetime
 from typing import Any
 
 import pytest
+from stress_dbguard import require_task_database_url, skip_or_fail
 
 TEST_DATABASE_URL_ENV = "VULNSCOPE_TEST_DATABASE_URL"
 
@@ -89,14 +89,10 @@ def crash_backend_factory():
 
 @pytest.fixture
 def test_database_url() -> str:
-    url = os.environ.get(TEST_DATABASE_URL_ENV)
-    if not url:
-        pytest.skip(
-            f"{TEST_DATABASE_URL_ENV} not set; Postgres-backed ledger stress "
-            "tests need a throwaway CI/dev Postgres instance (see "
-            "docs/gates/slice0-pre-stress.md)"
-        )
-    return url
+    # 2026-11-19 owner decision: refuse any database that is not a disposable
+    # vulnscope_task<letters>_<8 hex> on 127.0.0.1:5432 (a failure, not a skip), and turn the
+    # unset-env skip into a failure under VULNSCOPE_REQUIRE_INTEGRATION=1. Fixed-text messages.
+    return require_task_database_url()
 
 
 @pytest.fixture
@@ -123,7 +119,7 @@ def pg_chain_backend(test_database_url: str):
     try:
         from vulnscope.db.session import get_async_engine
     except ImportError:
-        pytest.skip(
+        skip_or_fail(
             "vulnscope.db.session.get_async_engine not found; per "
             "docs/gates/slice0-plan.md Section 3.7/3.8 this is pinned and "
             "should exist once Task 0 lands -- if it's missing after that, "

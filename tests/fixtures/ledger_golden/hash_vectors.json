@@ -1,0 +1,71 @@
+{
+ "version": 1,
+ "genesis": [
+  {
+   "chain_id": "engagement:3f2c9a10-7b1e-4c55-9d0a-6e1b2c3d4e5f",
+   "genesis_hash": "3a499a2ca627e1ce46dbfdf8ecc098a4a38f53648bbaa53135dc0d5017ba4357"
+  },
+  {
+   "chain_id": "intake:22222222-2222-7222-8222-222222222222",
+   "genesis_hash": "7e5cc2df565b523024ab1c0ffbf933b3a507dc6a03e7c265bfc3ef46d60e7f1f"
+  },
+  {
+   "chain_id": "engagement:x",
+   "genesis_hash": "40f7e8cb6458a93ce2c1e20052cccbf5b44455ec022be4bfd1cd5e35558a8d83"
+  }
+ ],
+ "chain_id": "engagement:3f2c9a10-7b1e-4c55-9d0a-6e1b2c3d4e5f",
+ "schema_version": 1,
+ "entries": [
+  {
+   "seq": 0,
+   "kind": "engagement.created",
+   "actor": "user:alice",
+   "payload_json": "{\"name\": \"lab-1\", \"scope\": [\"a.lab.test\"], \"n\": 1}",
+   "ts_input": "2026-11-19T10:30:00+02:00",
+   "ts_canonical": "2026-11-19T08:30:00.000000Z",
+   "prev_hash": "3a499a2ca627e1ce46dbfdf8ecc098a4a38f53648bbaa53135dc0d5017ba4357",
+   "entry_document_canonical_utf8": "{\"actor\":\"user:alice\",\"chain_id\":\"engagement:3f2c9a10-7b1e-4c55-9d0a-6e1b2c3d4e5f\",\"kind\":\"engagement.created\",\"payload\":{\"n\":1,\"name\":\"lab-1\",\"scope\":[\"a.lab.test\"]},\"prev_hash\":\"3a499a2ca627e1ce46dbfdf8ecc098a4a38f53648bbaa53135dc0d5017ba4357\",\"schema_version\":1,\"seq\":0,\"ts\":\"2026-11-19T08:30:00.000000Z\"}",
+   "record_hash": "fe4fb82a8163fe988298e1f0116b888b5289ad98e854a765056cde169cbdd1a4"
+  },
+  {
+   "seq": 1,
+   "kind": "policy.decision",
+   "actor": "system",
+   "payload_json": "{\"allowed\": true, \"rule_id\": \"ALLOW\", \"target\": \"a.lab.test\", \"resolved_ips\": [\"192.0.2.1\"]}",
+   "ts_input": "2026-11-19T08:30:01.123456+00:00",
+   "ts_canonical": "2026-11-19T08:30:01.123456Z",
+   "prev_hash": "fe4fb82a8163fe988298e1f0116b888b5289ad98e854a765056cde169cbdd1a4",
+   "entry_document_canonical_utf8": "{\"actor\":\"system\",\"chain_id\":\"engagement:3f2c9a10-7b1e-4c55-9d0a-6e1b2c3d4e5f\",\"kind\":\"policy.decision\",\"payload\":{\"allowed\":true,\"resolved_ips\":[\"192.0.2.1\"],\"rule_id\":\"ALLOW\",\"target\":\"a.lab.test\"},\"prev_hash\":\"fe4fb82a8163fe988298e1f0116b888b5289ad98e854a765056cde169cbdd1a4\",\"schema_version\":1,\"seq\":1,\"ts\":\"2026-11-19T08:30:01.123456Z\"}",
+   "record_hash": "ccc15081ffc5b7977edec8399b530e86d07d0912a9d717a98c69a02d4b26b3d5"
+  },
+  {
+   "seq": 2,
+   "kind": "evidence",
+   "actor": "system",
+   "payload_json": "{\"excerpt\": \"\\u00e9 \\\"quoted\\\" \\u2028 \\ud83d\\ude00\", \"sha256\": \"abababababababababababababababababababababababababababababababab\"}",
+   "ts_input": "2026-11-19T08:30:02Z",
+   "ts_canonical": "2026-11-19T08:30:02.000000Z",
+   "prev_hash": "ccc15081ffc5b7977edec8399b530e86d07d0912a9d717a98c69a02d4b26b3d5",
+   "entry_document_canonical_utf8": "{\"actor\":\"system\",\"chain_id\":\"engagement:3f2c9a10-7b1e-4c55-9d0a-6e1b2c3d4e5f\",\"kind\":\"evidence\",\"payload\":{\"excerpt\":\"\u00e9 \\\"quoted\\\" \u2028 \ud83d\ude00\",\"sha256\":\"abababababababababababababababababababababababababababababababab\"},\"prev_hash\":\"ccc15081ffc5b7977edec8399b530e86d07d0912a9d717a98c69a02d4b26b3d5\",\"schema_version\":1,\"seq\":2,\"ts\":\"2026-11-19T08:30:02.000000Z\"}",
+   "record_hash": "fd6dad80dafe4bb85dbb67083585ad79338c4ff0fbae7cccc63ae5613e785d34"
+  },
+  {
+   "seq": 3,
+   "kind": "finding.transition",
+   "actor": "user:bob",
+   "payload_json": "{\"from\": \"open\", \"to\": \"confirmed\", \"n\": 9007199254740991, \"flags\": [true, false, null]}",
+   "ts_input": "2026-11-19T00:30:03.000001-08:00",
+   "ts_canonical": "2026-11-19T08:30:03.000001Z",
+   "prev_hash": "fd6dad80dafe4bb85dbb67083585ad79338c4ff0fbae7cccc63ae5613e785d34",
+   "entry_document_canonical_utf8": "{\"actor\":\"user:bob\",\"chain_id\":\"engagement:3f2c9a10-7b1e-4c55-9d0a-6e1b2c3d4e5f\",\"kind\":\"finding.transition\",\"payload\":{\"flags\":[true,false,null],\"from\":\"open\",\"n\":9007199254740991,\"to\":\"confirmed\"},\"prev_hash\":\"fd6dad80dafe4bb85dbb67083585ad79338c4ff0fbae7cccc63ae5613e785d34\",\"schema_version\":1,\"seq\":3,\"ts\":\"2026-11-19T08:30:03.000001Z\"}",
+   "record_hash": "1cdb92fe80efa0dc2b537cb281c127e92dfb0b274a0e6d8c869e9417ec63eef9"
+  }
+ ],
+ "wrong_interpretations_of_entry_0": {
+  "raw32_prev_concat": "c1f43b2ae56442793bf7df1f3372b3d74ef68464fe5c46724db45a74592cab25",
+  "hex_prev_concat_doc_without_prev_hash": "5769d6140fe6745e4be9570d503e208caef6c6e649277853080fc0452a62f5b5",
+  "doc_only_no_prefix": "1ec3f3c4f3d58ede88df46b2562af5ea4434bdec868ef06a0531cee3900795d1",
+  "hex_prev_plus_newline_sep": "48410ad72ace3c1eb74df40a199d996df598323b3167a998d5cafc564737e3d5"
+ }
+}

@@ -1,0 +1,182 @@
+{
+ "version": 1,
+ "vectors": [
+  {
+   "name": "float",
+   "kind": "canonical_json",
+   "input_json": "{\"a\":1.5}"
+  },
+  {
+   "name": "float_integral",
+   "kind": "canonical_json",
+   "input_json": "{\"a\":2.0}"
+  },
+  {
+   "name": "nan",
+   "kind": "canonical_json",
+   "python": "nan"
+  },
+  {
+   "name": "inf",
+   "kind": "canonical_json",
+   "python": "inf"
+  },
+  {
+   "name": "int_2pow53",
+   "kind": "canonical_json",
+   "input_json": "{\"a\":9007199254740992}"
+  },
+  {
+   "name": "int_neg_2pow53",
+   "kind": "canonical_json",
+   "input_json": "{\"a\":-9007199254740992}"
+  },
+  {
+   "name": "non_str_key",
+   "kind": "canonical_json",
+   "python": "int_key"
+  },
+  {
+   "name": "bytes_value",
+   "kind": "canonical_json",
+   "python": "bytes"
+  },
+  {
+   "name": "datetime_value",
+   "kind": "canonical_json",
+   "python": "datetime"
+  },
+  {
+   "name": "lone_surrogate_value",
+   "kind": "canonical_json",
+   "input_json": "{\"a\":\"\\ud800\"}"
+  },
+  {
+   "name": "lone_surrogate_key",
+   "kind": "canonical_json",
+   "input_json": "{\"\\udfff\":1}"
+  },
+  {
+   "name": "depth_17_root_counts_as_1",
+   "kind": "normalize_payload",
+   "gen": "depth",
+   "n": 17
+  },
+  {
+   "name": "payload_70kb",
+   "kind": "normalize_payload",
+   "gen": "bytes",
+   "n": 70000
+  },
+  {
+   "name": "naive_ts",
+   "kind": "format_ts",
+   "python": "naive"
+  },
+  {
+   "name": "chain_id_trailing_newline",
+   "kind": "chain_id",
+   "input_json": "\"engagement:x\\n\""
+  },
+  {
+   "name": "chain_id_arabic_indic_digit",
+   "kind": "chain_id",
+   "input_json": "\"engagement:\\u0661\""
+  },
+  {
+   "name": "chain_id_empty_suffix",
+   "kind": "chain_id",
+   "input_json": "\"intake:\""
+  },
+  {
+   "name": "chain_id_201_chars",
+   "kind": "chain_id",
+   "gen": "chain201"
+  },
+  {
+   "name": "chain_id_nul",
+   "kind": "chain_id",
+   "input_json": "\"engagement:a\\u0000b\""
+  },
+  {
+   "name": "chain_id_trailing_space",
+   "kind": "chain_id",
+   "input_json": "\"engagement:x \""
+  },
+  {
+   "name": "chain_id_bad_prefix",
+   "kind": "chain_id",
+   "input_json": "\"tenant:x\""
+  },
+  {
+   "name": "kind_uppercase",
+   "kind": "kind",
+   "input_json": "\"Policy.decision\""
+  },
+  {
+   "name": "kind_trailing_newline",
+   "kind": "kind",
+   "input_json": "\"evidence\\n\""
+  },
+  {
+   "name": "actor_space",
+   "kind": "actor",
+   "input_json": "\"user: bob\""
+  },
+  {
+   "name": "actor_empty",
+   "kind": "actor",
+   "input_json": "\"\""
+  },
+  {
+   "name": "hash_uppercase",
+   "kind": "prev_hash",
+   "input_json": "\"ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB\""
+  },
+  {
+   "name": "hash_short",
+   "kind": "prev_hash",
+   "input_json": "\"abababababababababababababababababababababababababababababababa\""
+  },
+  {
+   "name": "hash_newline_terminated",
+   "kind": "prev_hash",
+   "input_json": "\"abababababababababababababababababababababababababababababababab\\n\""
+  },
+  {
+   "name": "hash_non_hex",
+   "kind": "prev_hash",
+   "input_json": "\"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\""
+  },
+  {
+   "name": "ts_parse_no_fraction",
+   "kind": "parse_ts",
+   "input_json": "\"2026-11-19T08:30:00Z\""
+  },
+  {
+   "name": "ts_parse_offset",
+   "kind": "parse_ts",
+   "input_json": "\"2026-11-19T08:30:00.000000+00:00\""
+  },
+  {
+   "name": "ts_parse_lowercase_z",
+   "kind": "parse_ts",
+   "input_json": "\"2026-11-19T08:30:00.000000z\""
+  },
+  {
+   "name": "ts_parse_trailing_newline",
+   "kind": "parse_ts",
+   "input_json": "\"2026-11-19T08:30:00.000000Z\\n\""
+  },
+  {
+   "name": "ts_parse_year_0000",
+   "kind": "parse_ts",
+   "input_json": "\"0000-01-01T00:00:00.000000Z\""
+  },
+  {
+   "name": "ts_parse_month_13",
+   "kind": "parse_ts",
+   "input_json": "\"2026-13-01T00:00:00.000000Z\""
+  }
+ ]
+}
