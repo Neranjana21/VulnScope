@@ -30,7 +30,6 @@ def test_hostile_target_is_recorded_sanitized_and_basis_kept() -> None:
     d, _ = run_decide("a\x00b\ud800" + "x" * 5000, allow=("a.test",))
     basis = AuthorizationBasis(True, "user:1", "c" * 64)
     p = policy_decision_to_payload(d, authorization_basis=basis)
-    assert p["sanitized"] is True
     assert p["authorization_basis"] == {
         "confirmed": True,
         "approver": "user:1",

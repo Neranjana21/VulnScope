@@ -20,6 +20,7 @@ Documented residuals (design 4 and 11.1 RC6):
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -32,6 +33,7 @@ from vulnscope.policy.denylist import compute_policy_version
 from vulnscope.policy.private_ranges import parse_lab_cidr
 from vulnscope.policy.ratelimit import RateLimitStore
 from vulnscope.policy.resolver import Resolver
+from vulnscope.policy.target import TargetParseError, canonical_target
 from vulnscope.policy.types import Action, AuthorizationBasis, EngagementPolicyView, PolicyDecision
 
 PAYLOAD_SCHEMA_VERSION = 1
@@ -59,6 +61,20 @@ def _lab_cidr_field(lab_enabled: bool, lab_cidr: str | None) -> str | None:
     return None if net is None else str(net)
 
 
+def _target_fields(raw: str) -> dict[str, JsonValue]:
+    """Rule 6: never store the raw target (userinfo, query and fragment can carry secrets).
+
+    Parseable: canonical scheme, host and port only. Unparseable: a fixed marker and the
+    length. Both: the sha256 of the raw string, so the exact input stays attestable.
+    """
+    digest = hashlib.sha256(raw.encode("utf-8", "surrogatepass")).hexdigest()
+    try:
+        t = canonical_target(raw)
+    except TargetParseError:
+        return {"target_unparseable": True, "target_length": len(raw), "target_sha256": digest}
+    return {"scheme": t.scheme, "host": t.host, "port": t.port, "target_sha256": digest}
+
+
 def policy_decision_to_payload(
     decision: PolicyDecision,
     *,
@@ -77,11 +93,11 @@ def policy_decision_to_payload(
         }
     action: dict[str, JsonValue] = {
         "kind": decision.action.kind,
-        "target": decision.action.target,
         "resolved_ips": list(decision.resolved_ips),
         "adapter": decision.action.adapter,
         "is_redirect_hop": decision.action.is_redirect_hop,
     }
+    action.update(_target_fields(decision.action.target))
     payload: dict[str, JsonValue] = {
         "schema_version": PAYLOAD_SCHEMA_VERSION,
         "allowed": decision.allowed,

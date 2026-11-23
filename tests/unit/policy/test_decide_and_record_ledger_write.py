@@ -6,6 +6,7 @@ merged these tests cannot even import `decide_and_record`.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import timedelta
 
@@ -88,7 +89,10 @@ async def test_payload_shape_and_plain_types() -> None:
     assert p["lab_enabled"] is False and p["lab_cidr"] is None
     assert p["action"] == {
         "kind": "http",
-        "target": H,
+        "scheme": None,
+        "host": H,
+        "port": None,
+        "target_sha256": hashlib.sha256(H.encode()).hexdigest(),
         "resolved_ips": ["192.0.2.1"],
         "adapter": "unit",
         "is_redirect_hop": False,
@@ -111,8 +115,10 @@ async def test_hostile_target_is_recorded_once_and_flagged() -> None:
     b = FakeChainBackend()
     d = await _call("a\x00b\ud800" + "x" * 5000, b)
     assert not d.allowed and len(b.appended) == 1
-    assert b.appended[0].payload.get("sanitized") is True
-    assert "\x00" not in json.dumps(dict(b.appended[0].payload))
+    action = b.appended[0].payload["action"]
+    assert action["target_unparseable"] is True and action["target_length"] == 5004
+    assert "target" not in action
+    assert "xxxx" not in json.dumps(dict(b.appended[0].payload))
 
 
 async def test_skew_recorded_when_over_one_second_and_rejected_over_sixty() -> None:
