@@ -84,6 +84,7 @@ APPENDS_PER_TASK = 60
 TOTAL_TASK_APPENDS = WRITER_TASKS * APPENDS_PER_TASK
 
 R6_LEDGER_APPEND_FLOOR_RPS = 200.0  # docs/decisions.md R6
+PG_MEDIAN_FLOOR_RPS = 100.0  # CI hard floor for the median of three Postgres runs
 
 
 async def _hammer_async(backend, chain_id: str, count: int) -> None:
@@ -177,35 +178,37 @@ async def test_memory_backend_concurrent_writers_no_gaps_and_throughput() -> Non
 @pytest.mark.asyncio
 @pytest.mark.requires_postgres
 async def test_postgres_backend_concurrent_writers_no_gaps(pg_chain_backend) -> None:
-    chain_id = "engagement:stress-concurrency-pg"
+    """Throughput policy (owner decision): the recorded R6 target stays 200 records/s and is
+    reported in the post-gate. CI asserts the MEDIAN of THREE runs against a hard floor of 100
+    records/s. A single run on shared CI/WSL2 hardware swings with fsync and scheduler noise, so
+    one slow run must not fail the gate and one lucky run must not pass it; the median of three
+    discards one outlier either way. Every run still asserts no errors, gapless seqs and a
+    verifiable chain (each run uses its own fresh chain id)."""
+    throughputs: list[float] = []
+    for run_no in range(3):
+        chain_id = f"engagement:stress-concurrency-pg-{run_no}"
+        start = time.perf_counter()
+        results = await asyncio.gather(
+            *(
+                _hammer_async(pg_chain_backend, chain_id, APPENDS_PER_TASK)
+                for _ in range(WRITER_TASKS)
+            ),
+            return_exceptions=True,
+        )
+        elapsed = time.perf_counter() - start
+        _assert_no_integrity_errors_async(results)
 
-    start = time.perf_counter()
-    results = await asyncio.gather(
-        *(
-            _hammer_async(pg_chain_backend, chain_id, APPENDS_PER_TASK)
-            for _ in range(WRITER_TASKS)
-        ),
-        return_exceptions=True,
-    )
-    elapsed = time.perf_counter() - start
-    _assert_no_integrity_errors_async(results)
+        await _assert_gapless_and_linear(pg_chain_backend, chain_id, TOTAL_TASK_APPENDS)
+        throughputs.append(TOTAL_TASK_APPENDS / elapsed)
 
-    await _assert_gapless_and_linear(pg_chain_backend, chain_id, TOTAL_TASK_APPENDS)
-
-    throughput = TOTAL_TASK_APPENDS / elapsed
+    median = sorted(throughputs)[1]
     print(
-        f"PostgresChainBackend: {TOTAL_TASK_APPENDS} appends across {WRITER_TASKS} "
-        f"asyncio tasks in {elapsed:.3f}s = {throughput:.1f} records/s"
+        f"PostgresChainBackend: {TOTAL_TASK_APPENDS} appends x3 runs, {WRITER_TASKS} asyncio "
+        f"tasks; records/s per run = {[round(t, 1) for t in throughputs]}, median {median:.1f} "
+        f"(target {R6_LEDGER_APPEND_FLOOR_RPS}, CI floor {PG_MEDIAN_FLOOR_RPS})"
     )
-    # Real I/O + row-lock serialization is slower than in-memory and more
-    # sensitive to CI hardware; the real number must be recorded in the
-    # post-gate against the R6 target of 200 records/s regardless of
-    # pass/fail. A conservative floor here only catches a gross regression
-    # (e.g. a missing index or lock misuse), not R6 compliance itself.
-    conservative_floor = R6_LEDGER_APPEND_FLOOR_RPS / 10
-    assert throughput >= conservative_floor, (
-        f"Postgres backend throughput {throughput:.1f} records/s is far below "
-        f"even the conservative floor of {conservative_floor} records/s; "
-        f"R6's actual target is {R6_LEDGER_APPEND_FLOOR_RPS} records/s -- "
-        "record the real measured number in the post-gate either way"
+    assert median >= PG_MEDIAN_FLOOR_RPS, (
+        f"Postgres backend median throughput {median:.1f} records/s (runs {throughputs}) is "
+        f"below the hard floor of {PG_MEDIAN_FLOOR_RPS} records/s; the recorded R6 target is "
+        f"{R6_LEDGER_APPEND_FLOOR_RPS} records/s -- record the real numbers in the post-gate"
     )
