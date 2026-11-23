@@ -364,6 +364,9 @@ EXTRA_BLOCKED_KEYS: Final = frozenset(
         "id_token",
         "secret_key",
         "x-csrf-token",
+        "csrf_token",
+        "session_id",
+        "auth_token",
         "x-auth-token",
         "session",
         "sessionid",
@@ -424,6 +427,8 @@ def _clean_str(s: str) -> tuple[str, str | None]:
 def _clean_key(k: object, index: int) -> str:
     if type(k) is not str:
         return f"[key:{index}]"
+    if _is_blocked(k):
+        k = k.strip()  # credential names are stored without padding (PB-12), still redacted
     return _escape(k[:KEY_CAP])[:KEY_CAP]
 
 
@@ -441,15 +446,23 @@ def _unique_key(base: str, used: set[str]) -> str:
         n += 1
 
 
+_CAMEL_LOWER: Final = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_CAMEL_ACRONYM: Final = re.compile(r"(?<=[A-Z])(?=[A-Z][a-z])")
+
+
 def _norm_key(k: str) -> str:
-    return k.strip().casefold().replace("-", "_")
+    s = _CAMEL_ACRONYM.sub("_", _CAMEL_LOWER.sub("_", k.strip()))  # PB-12: split camelCase first
+    return s.casefold().replace("-", "_")
 
 
 _BLOCKED_NORM: Final = frozenset(_norm_key(n) for n in BLOCKED_KEYS | EXTRA_BLOCKED_KEYS)
 
 
 def _is_blocked(k: object) -> bool:
-    return type(k) is str and len(k) <= 64 and _norm_key(k) in _BLOCKED_NORM
+    if type(k) is not str or len(k) > 64:
+        return False
+    plain = k.strip().casefold().replace("-", "_")  # also the unsplit form (aUtHoRiZaTiOn)
+    return plain in _BLOCKED_NORM or _norm_key(k) in _BLOCKED_NORM
 
 
 def _blocked_here(k: object, named: bool) -> bool:
@@ -563,6 +576,8 @@ class _Sanitizer:
             if s != REDACTED:  # an already redacted value is not a new alteration (idempotence)
                 self.rec(path, "redacted")
             return REDACTED
+        if len(s) <= 64 and _is_blocked(s):
+            s = s.strip()  # a credential NAME (pair or HAR) is stored without padding
         text, reason = _clean_str(s)
         cost = _jbytes(text) + _NODE_COST
         if cost > self.remaining:
