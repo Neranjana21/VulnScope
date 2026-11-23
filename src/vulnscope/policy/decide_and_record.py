@@ -40,6 +40,13 @@ PAYLOAD_SCHEMA_VERSION = 1
 MAX_SKEW = timedelta(seconds=60)
 RECORD_SKEW = timedelta(seconds=1)
 _ACTOR_RE = re.compile(r"system|user:[A-Za-z0-9_-]{1,64}", re.ASCII)
+# Minimal safe adapter grammar (it is stored in the ledger, so it must never carry a secret):
+# <name>[@<version>] then optional "|job=<id>" and "|req=<id>" in that order. The only "="
+# allowed is inside those two correlation keys, so "tok=..." style values are rejected.
+_ADAPTER_RE = re.compile(
+    r"[A-Za-z0-9_.-]{1,64}(@[0-9]{1,4})?(\|job=[A-Za-z0-9_-]{1,64})?(\|req=[A-Za-z0-9_-]{1,64})?",
+    re.ASCII,
+)
 
 
 def _iso(ts: datetime) -> str:
@@ -128,6 +135,8 @@ async def decide_and_record(
     lab_enabled: bool = False,
     lab_cidr: str | None = None,
 ) -> PolicyDecision:
+    if not isinstance(action.adapter, str) or not _ADAPTER_RE.fullmatch(action.adapter):
+        raise ValueError("action.adapter does not match the allowed grammar")
     if not isinstance(actor, str) or not _ACTOR_RE.fullmatch(actor):
         raise ValueError("actor must be 'system' or 'user:<id>'")
     if compute_policy_version(lab_enabled=lab_enabled, lab_cidr=lab_cidr) != (
