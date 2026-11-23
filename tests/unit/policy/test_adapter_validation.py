@@ -35,6 +35,10 @@ GOOD = [
     "security_headers@1",
     "security_headers@1|job=0193-abc_DEF|req=r-42",
     "orchestrator|job=j1",
+    "a|job=0193-A_b|req=Z-9_z",
+    "a|req=only_req",
+    "a|job=" + "i" * 64,
+    "a.b-c_d@12",
     "x" * 64,
 ]
 BAD = [
@@ -52,6 +56,20 @@ BAD = [
     "ok|job=" + "y" * 65,
     "Bearer abc.def",
     "a|job=",
+    "a|job=x=y",
+    "a|job=x=",
+    "a|job==",
+    "a|req=x=y",
+    "a|job=ok|req=x=y",
+    "a|job=x|k=v",
+    "a|job=x|y",
+    "a|job=x@1",
+    "a|job=x|req=y|req=z",
+    "a|req=x|job=y",
+    "a|job=x|job=y",
+    "a|job=x@y",
+    "a|req=x@y",
+    "a@1@2",
 ]
 
 
