@@ -150,9 +150,44 @@ def test_pending_futures_are_cancelled_on_timeout(monkeypatch: pytest.MonkeyPatc
         for t in threads:
             t.join()
         assert outcomes == ["failed"] * 7
+        release.set()
+        time.sleep(0.3)  # queued lookups would run now if they had not been cancelled
+        assert len(calls) == 4
     finally:
         release.set()
         r.close()
-    time.sleep(0.1)
-    # only the 4 running lookups ever started; the 3 queued ones were cancelled
-    assert len(calls) == 4
+
+
+def test_submit_failure_releases_the_slot_every_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(resolver_mod.socket, "getaddrinfo", lambda *a, **k: _info("192.0.2.1"))
+    r = SystemResolver(max_inflight=2)
+    r.close()  # every later submit raises
+    for _ in range(10):
+        with pytest.raises(ResolutionError, match="unavailable"):
+            r.resolve("x.test")  # a leaked slot would turn this into "busy" after 2 calls
+
+
+def test_default_bound_is_eight_and_the_ninth_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+
+    release = threading.Event()
+    monkeypatch.setattr(
+        resolver_mod.socket, "getaddrinfo", lambda *a, **k: (release.wait(5), _info("192.0.2.1"))[1]
+    )
+    r = SystemResolver(timeout_s=5)
+    threads = [threading.Thread(target=_try, args=(r, f"h{i}.test")) for i in range(8)]
+    try:
+        for t in threads:
+            t.start()
+        deadline = time.perf_counter() + 2
+        while r._slots._value != 0 and time.perf_counter() < deadline:  # noqa: SLF001
+            time.sleep(0.01)
+        with pytest.raises(ResolutionError, match="busy"):
+            r.resolve("ninth.test")
+    finally:
+        release.set()
+        for t in threads:
+            t.join()
+        r.close()
