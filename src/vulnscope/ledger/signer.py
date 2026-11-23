@@ -68,10 +68,14 @@ class Ed25519PublicVerifier:
             or _PUBKEY_RE.fullmatch(public_key_hex) is None
         ):
             raise SignerKeyError("bad_public_key")
+        key: Ed25519PublicKey | None = None
         try:
-            return cls(Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key_hex)))
+            key = Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key_hex))
         except ValueError:
-            raise SignerKeyError("bad_public_key") from None
+            pass
+        if key is None:  # raised outside the handler: no __context__ (PB-8)
+            raise SignerKeyError("bad_public_key")
+        return cls(key)
 
     @property
     def public_key_hex(self) -> str:
@@ -122,18 +126,24 @@ class Ed25519FileSigner:
     def load(cls, key_path: Path) -> Self:
         """Fails closed (``SignerKeyError``, fixed text naming only the failed check)."""
         parent = os.path.dirname(os.fspath(key_path)) or "."
+        fd = -1
         try:
             fd = os.open(os.fspath(key_path), os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
         except OSError:
-            raise SignerKeyError("open_failed") from None
+            pass
+        if fd < 0:
+            raise SignerKeyError("open_failed")
         try:
             data = cls._read_checked(fd, parent)
         finally:
             os.close(fd)
+        key: object = None
         try:
             key = serialization.load_pem_private_key(data, password=None)
         except (ValueError, TypeError, UnsupportedAlgorithm):
-            raise SignerKeyError("malformed") from None
+            pass
+        if key is None:
+            raise SignerKeyError("malformed")
         if not isinstance(key, Ed25519PrivateKey):
             raise SignerKeyError("wrong_key_type")
         return cls(key)
@@ -151,10 +161,13 @@ class Ed25519FileSigner:
             raise SignerKeyError("not_readable")
         if st.st_size == 0 or st.st_size > _MAX_KEY_FILE_BYTES:
             raise SignerKeyError("bad_size")
+        dfd = -1
         try:
             dfd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
         except OSError:
-            raise SignerKeyError("parent_unreadable") from None
+            pass
+        if dfd < 0:
+            raise SignerKeyError("parent_unreadable")
         try:
             if os.fstat(dfd).st_mode & 0o022:
                 raise SignerKeyError("unsafe_parent")
@@ -181,6 +194,7 @@ class Ed25519FileSigner:
             serialization.PrivateFormat.PKCS8,
             serialization.NoEncryption(),
         )
+        fd = -1
         try:
             fd = os.open(
                 os.fspath(key_path),
@@ -188,7 +202,9 @@ class Ed25519FileSigner:
                 0o600,
             )
         except OSError:
-            raise SignerKeyError("create_failed") from None
+            pass
+        if fd < 0:
+            raise SignerKeyError("create_failed")
         try:
             os.fchmod(fd, 0o600)
             os.write(fd, pem)
