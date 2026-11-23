@@ -78,3 +78,81 @@ def test_system_clock() -> None:
     assert c.now().utcoffset() == timedelta(0)
     a = c.monotonic()
     assert c.monotonic() >= a
+
+
+def _try(r: SystemResolver, host: str = "x.test") -> object:
+    try:
+        return r.resolve(host)
+    except ResolutionError:
+        return "failed"
+
+
+def test_bounded_in_flight_fails_closed_when_full(monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+
+    release = threading.Event()
+    started = threading.Semaphore(0)
+
+    def blocked(*a: object, **k: object) -> list:
+        started.release()
+        release.wait(5)
+        return _info("192.0.2.1")
+
+    monkeypatch.setattr(resolver_mod.socket, "getaddrinfo", blocked)
+    r = SystemResolver(timeout_s=5, max_inflight=2)
+    results: list[object] = []
+    threads = [threading.Thread(target=lambda: results.append(_try(r))) for _ in range(2)]
+    try:
+        for t in threads:
+            t.start()
+        started.acquire()
+        started.acquire()
+        begin = time.perf_counter()
+        with pytest.raises(ResolutionError):
+            r.resolve("third.test")  # both slots held: fails closed immediately
+        assert time.perf_counter() - begin < 0.5
+    finally:
+        release.set()
+        for t in threads:
+            t.join()
+        r.close()
+    assert results == [("192.0.2.1",), ("192.0.2.1",)]
+    monkeypatch.setattr(resolver_mod.socket, "getaddrinfo", lambda *a, **k: _info("192.0.2.2"))
+    r2 = SystemResolver(max_inflight=2)
+    try:
+        for _ in range(5):  # slots are released after completion
+            assert r2.resolve("x.test") == ("192.0.2.2",)
+    finally:
+        r2.close()
+
+
+def test_pending_futures_are_cancelled_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+
+    release = threading.Event()
+    calls: list[str] = []
+
+    def blocked(host: str, *a: object, **k: object) -> list:
+        calls.append(host)
+        release.wait(5)
+        return _info("192.0.2.1")
+
+    monkeypatch.setattr(resolver_mod.socket, "getaddrinfo", blocked)
+    r = SystemResolver(timeout_s=0.15, max_inflight=8)
+    outcomes: list[object] = []
+    threads = [
+        threading.Thread(target=lambda i=i: outcomes.append(_try(r, f"h{i}.test")))
+        for i in range(7)
+    ]
+    try:
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert outcomes == ["failed"] * 7
+    finally:
+        release.set()
+        r.close()
+    time.sleep(0.1)
+    # only the 4 running lookups ever started; the 3 queued ones were cancelled
+    assert len(calls) == 4
