@@ -54,14 +54,14 @@ def test_redacted_value_is_the_fixed_string_and_the_record_has_no_length_or_hash
     assert _records(out) == [{"path": "$.password", "reason": "redacted"}]
 
 
-def test_container_under_a_blocked_key_keeps_shape_and_redacts_string_leaves() -> None:
-    out = _san({"cookie": {"a": "x", "n": 1, "deep": ["y", {"z": "w"}]}})
-    assert out["cookie"] == {"a": "[redacted]", "n": 1, "deep": ["[redacted]", {"z": "[redacted]"}]}
+def test_container_under_a_blocked_key_keeps_shape_and_redacts_every_leaf_but_none() -> None:
+    out = _san({"cookie": {"a": "x", "n": 1, "z": None, "deep": ["y", {"z": "w"}]}})
+    assert out["cookie"] == {"a": "[redacted]", "n": "[redacted]", "z": None, "deep": ["[redacted]", {"z": "[redacted]"}]}
 
 
-def test_non_string_values_under_a_blocked_key_are_preserved() -> None:
-    assert _san({"password": 123, "token": None, "secret": True}) == {
-        "password": 123, "token": None, "secret": True}
+def test_int_bool_float_values_under_a_blocked_key_are_redacted_none_is_kept() -> None:
+    out = _san({"password": 123, "token": None, "secret": True, "pwd": 1.5})
+    assert (out["password"], out["token"], out["secret"], out["pwd"]) == ("[redacted]", None, "[redacted]", "[redacted]")
 
 
 @pytest.mark.parametrize(
@@ -71,8 +71,6 @@ def test_non_string_values_under_a_blocked_key_are_preserved() -> None:
         {"secret_ref": "ref://engagements/e1/user_a"},
         {"token_count": 3},
         {"authorizations": "kept"},
-        {"x_api_key": "kept-underscore-variant"},
-        {"api-key": "kept"},
         {"Set-Cookie2": "kept"},
         {"passwords_policy": "kept"},
     ],
@@ -146,9 +144,9 @@ def test_caller_cannot_spoof_the_alteration_record() -> None:
 
 
 # ------------------------------------------------------------------ provenance by type
-def test_a_sanitized_payload_is_returned_unchanged_and_stored_as_is() -> None:
+def test_a_sanitized_payload_resanitizes_to_an_equal_payload_and_is_stored_as_is() -> None:
     s = c.sanitize_payload({"a": "x\x00y", "password": CANARY})
-    assert c.sanitize_payload(s) is s
+    assert c.sanitize_payload(s) == s
     assert c.prepare_payload(s) == dict(s)
 
 

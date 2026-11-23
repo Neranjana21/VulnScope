@@ -15,9 +15,11 @@ Two paths, deliberately separate:
   hostile (rule 9): no user-defined method is ever called, only exact type tests.
 
 Depth: the payload root container counts as depth 1, so 16 nested containers are accepted and 17
-are rejected (``MAX_DEPTH``). Header pairs: a two-item list or tuple ``[name, value]`` whose name
-is on ``BLOCKED_KEYS`` (exact, case-insensitive) has its value redacted like a dict key would be,
-at any depth; pairs with other names are preserved.
+are rejected (``MAX_DEPTH``). Redaction matches the NORMALISED key (casefold, strip, "-" to "_")
+exactly (never a substring) against ``BLOCKED_KEYS`` plus ``EXTRA_BLOCKED_KEYS``, and replaces any
+str, int, bool or float value with "[redacted]". The same applies to the value of a [name, value]
+or [name, value, extra] list/tuple and of a {"name": .., "value": ..} object whose name is blocked,
+at any depth. Free text that carries a credential is out of scope.
 """
 from __future__ import annotations
 
@@ -351,7 +353,29 @@ BLOCKED_KEYS: Final = frozenset(
         "client_secret",
     }
 )
+# Further credential-bearing names (PB-1). Matching is on the NORMALISED key (casefold, strip,
+# '-' becomes '_') against the normalised union of both sets, and stays EXACT: never a substring,
+# so ``secret_ref``, ``token_count`` and ``authorization_basis`` are preserved.
+EXTRA_BLOCKED_KEYS: Final = frozenset(
+    {
+        "api-key",
+        "access_token",
+        "refresh_token",
+        "id_token",
+        "secret_key",
+        "x-csrf-token",
+        "x-auth-token",
+        "session",
+        "sessionid",
+        "pwd",
+        "passphrase",
+        "authtoken",
+        "bearer",
+        "aws_secret_access_key",
+    }
+)
 REDACTED: Final = "[redacted]"
+_NAME_FIELDS: Final = frozenset({"name", "key", "header"})  # HAR-style {"name": .., "value": ..}
 
 SAN_MAX_DEPTH: Final = 8
 SAN_MAX_ITEMS: Final = 64  # keys per dict, items per list (top level: see TOP_KEYS_MAX)
@@ -417,8 +441,50 @@ def _unique_key(base: str, used: set[str]) -> str:
         n += 1
 
 
+def _norm_key(k: str) -> str:
+    return k.strip().casefold().replace("-", "_")
+
+
+_BLOCKED_NORM: Final = frozenset(_norm_key(n) for n in BLOCKED_KEYS | EXTRA_BLOCKED_KEYS)
+
+
 def _is_blocked(k: object) -> bool:
-    return type(k) is str and len(k) <= 32 and k.lower() in BLOCKED_KEYS
+    return type(k) is str and len(k) <= 64 and _norm_key(k) in _BLOCKED_NORM
+
+
+def _blocked_here(k: object, named: bool) -> bool:
+    return _is_blocked(k) or (named and type(k) is str and k.lower() == "value")
+
+
+_PRIOR_REASONS: Final = frozenset(
+    {"truncated", "escaped", "marker", "redacted", "clamped", "dropped", "fallback"}
+)
+
+
+def _prior_records(v: object) -> list[dict[str, JsonValue]]:
+    """Records of an earlier sanitizer run, whitelisted field by field (never trusted verbatim)."""
+    out: list[dict[str, JsonValue]] = []
+    if type(v) is not list:
+        return out
+    for r in v[:_MAX_RECORDS]:
+        if type(r) is not dict or type(r.get("reason")) is not str:
+            continue
+        if r["reason"] not in _PRIOR_REASONS:
+            continue
+        rec: dict[str, JsonValue] = {"reason": r["reason"]}
+        path = r.get("path")
+        if type(path) is str:
+            rec["path"] = _escape(path[:_PATH_CAP])[:_PATH_CAP]
+        for name in ("orig_len", "count"):
+            n = r.get(name)
+            if type(n) is int and 0 <= n <= MAX_INT:
+                rec[name] = n
+        for name in ("sha256", "sha256_prefix_1mib"):
+            h = r.get(name)
+            if is_hash(h):
+                rec[name] = cast(str, h)
+        out.append(rec)
+    return out
 
 
 def _jbytes(text: str) -> int:
@@ -434,7 +500,7 @@ def _is_scalar_value(v: object) -> bool:
 
 
 class _Frame:
-    __slots__ = ("items", "i", "out", "path", "depth", "redact", "used", "cid", "pair")
+    __slots__ = ("items", "i", "out", "path", "depth", "redact", "used", "cid", "pair", "named")
 
     def __init__(
         self,
@@ -454,6 +520,7 @@ class _Frame:
         self.used: set[str] = set()
         self.cid = cid
         self.pair = False  # a [blocked-name, value] header pair: the value is redacted
+        self.named = False  # a {"name": <blocked>, "value": ..} header object
 
 
 class _Dropped:
@@ -493,7 +560,8 @@ class _Sanitizer:
         if redact:
             if not self.spend(_jbytes(REDACTED) + _NODE_COST):
                 return _DROP
-            self.rec(path, "redacted")
+            if s != REDACTED:  # an already redacted value is not a new alteration (idempotence)
+                self.rec(path, "redacted")
             return REDACTED
         text, reason = _clean_str(s)
         cost = _jbytes(text) + _NODE_COST
@@ -530,6 +598,12 @@ class _Sanitizer:
 
     def scalar_or_marker(self, v: object, path: str, redact: bool) -> JsonValue | _Dropped:
         """Convert a non-container value. Exact type tests only."""
+        if redact and (type(v) is bool or type(v) is int or type(v) is float):
+            # PB-2: a credential is not only ever a string
+            if not self.spend(_jbytes(REDACTED) + _NODE_COST):
+                return _DROP
+            self.rec(path, "redacted")
+            return REDACTED
         if v is None or type(v) is bool:
             if not self.spend(_NODE_COST + 5):
                 return _DROP
@@ -599,8 +673,13 @@ class _Sanitizer:
             self.rec(path, "dropped", count=total - limit)
         self.open_ids.add(cid)
         frame = _Frame(items, out, path, depth, redact, cid)
+        if isinstance(out, dict):
+            frame.named = any(
+                type(k) is str and k.lower() in _NAME_FIELDS and type(v) is str and _is_blocked(v)
+                for k, v in cast(tuple[tuple[object, object], ...], items)
+            )
         frame.pair = (
-            not isinstance(out, dict) and total == 2 and len(items) == 2 and _is_blocked(items[0])
+            not isinstance(out, dict) and total in (2, 3) and _is_blocked(items[0])
         )
         return frame
 
@@ -636,7 +715,11 @@ class _Sanitizer:
                     self.rec(f.path, "dropped", count=len(f.items) - index)
                     f.i = len(f.items)
                     continue
-                redact = f.redact or _is_blocked(k)
+                redact = (
+                    f.redact
+                    or _is_blocked(k)
+                    or (f.named and type(k) is str and k.lower() == "value")
+                )
             else:
                 v = item
                 key = ""
@@ -661,7 +744,9 @@ class _Sanitizer:
         return first.out
 
     # -- top level
-    def top(self, source: dict[object, object], *, wrapped: bool) -> _SanitizedPayload:
+    def top(
+        self, source: dict[object, object], *, wrapped: bool, prior: bool = False
+    ) -> _SanitizedPayload:
         try:
             total = len(source)
             items = tuple(islice(source.items(), _TOP_SNAPSHOT))
@@ -674,9 +759,18 @@ class _Sanitizer:
         used: set[str] = set()
         keys_left = TOP_KEYS_MAX
         considered: list[tuple[int, object, object]] = []
+        named = any(
+            type(k) is str and k.lower() in _NAME_FIELDS and type(v) is str and _is_blocked(v)
+            for k, v in items
+        )
         for index, (k, v) in enumerate(items):
             if not wrapped and type(k) is str and k in ("sanitized", "sanitization"):
-                self.rec(f"$.{k}", "dropped")  # no spoofing of the alteration record
+                if prior:
+                    # our own earlier output: carry its records over (whitelisted), never trust
+                    if k == "sanitization":
+                        self.records = _prior_records(v)
+                else:
+                    self.rec(f"$.{k}", "dropped")  # no spoofing of the alteration record
                 continue
             considered.append((index, k, v))
         if total > len(items):
@@ -695,7 +789,7 @@ class _Sanitizer:
                 self.rec("$", "dropped", count=1)
                 continue
             self.nodes += 1
-            res = self.scalar_or_marker(v, f"$.{key}"[:_PATH_CAP], _is_blocked(k))
+            res = self.scalar_or_marker(v, f"$.{key}"[:_PATH_CAP], _blocked_here(k, named))
             if isinstance(res, _Dropped):
                 self.rec("$", "dropped", count=1)
                 used.discard(key)
@@ -719,7 +813,7 @@ class _Sanitizer:
                 self.rec("$", "dropped", count=1)
                 used.discard(key)
                 continue
-            res2 = self.convert_child(v, f"$.{key}"[:_PATH_CAP], _is_blocked(k), 2)
+            res2 = self.convert_child(v, f"$.{key}"[:_PATH_CAP], _blocked_here(k, named), 2)
             if isinstance(res2, _Dropped):
                 self.rec("$", "dropped", count=1)
                 used.discard(key)
@@ -776,7 +870,9 @@ def _fallback(obj: object) -> _SanitizedPayload:
 def _sanitize(obj: object) -> _SanitizedPayload:
     san = _Sanitizer()
     if type(obj) is dict or type(obj) is _SanitizedPayload:
-        return san.top(cast(dict[object, object], obj), wrapped=False)
+        return san.top(
+            cast(dict[object, object], obj), wrapped=False, prior=type(obj) is _SanitizedPayload
+        )
     san.rec("$", "marker")
     return san.top({"value": obj}, wrapped=True)
 
@@ -785,17 +881,14 @@ def sanitize_payload(obj: object) -> dict[str, JsonValue]:
     """TOTAL: never raises for any input (only ``BaseException`` such as ``KeyboardInterrupt`` or
     ``CancelledError`` passes through). Lossy and bounded; output always passes the strict path.
 
-    Provenance by type: an instance this function already returned (and that still passes the
-    strict check) is returned unchanged, so a payload sanitized by a caller equals what is stored.
+    ALWAYS re-sanitizes (PB-4): a payload that was sanitized earlier and then mutated in-process
+    (a blocked key added afterwards) is redacted again. Idempotent: the output of this function,
+    given back, comes out equal (its own alteration records are carried over after a whitelist
+    check; an already redacted value is not recorded twice). Free text that carries a credential
+    inside a longer string (``"Authorization: Bearer ..."``) is NOT detected: callers pass
+    structured data and must not put credentials into free text.
     """
     try:
-        if type(obj) is _SanitizedPayload:
-            try:
-                normalize_payload(obj)
-            except CanonicalizationError:
-                pass
-            else:
-                return obj
         out = _sanitize(obj)
         normalize_payload(out)  # final strict re-check
         return out

@@ -66,7 +66,7 @@ def test_sanitize_is_total_strict_valid_bounded_idempotent_and_never_leaks(
     out = c.sanitize_payload(payload)
     n = len(c.canonical_json(c.normalize_payload(out)))
     assert n <= c.OUTPUT_BUDGET + c.RECORDS_RESERVE
-    assert c.sanitize_payload(out) is out
+    assert c.sanitize_payload(out) == out
     assert CANARY not in json.dumps(out)
 
 
@@ -98,3 +98,46 @@ def test_a_flat_payload_survives_append_read_round_trip_equal_to_its_sanitized_f
 
     stored = asyncio.run(go())
     assert stored == c.prepare_payload(payload)
+
+
+# ---- post-gate fix round 1: normalised exact key matching (PB-1..PB-3)
+_names = st.sampled_from(sorted(c.BLOCKED_KEYS | c.EXTRA_BLOCKED_KEYS))
+_secrets = st.one_of(cps_text, st.integers(-(2**60), 2**60), st.floats(), st.booleans())
+
+
+def _variant(name: str, flips: list[bool], pad: str, dash: bool) -> str:
+    s = "".join(ch.upper() if f else ch for ch, f in zip(name, flips + [False] * len(name), strict=False))
+    if dash:
+        s = s.replace("_", "-")
+    return pad + s + pad
+
+
+@SETTINGS
+@given(
+    name=_names, flips=st.lists(st.booleans(), max_size=30), pad=st.sampled_from(["", " ", "\t", "\n "]),
+    dash=st.booleans(), value=_secrets, shape=st.sampled_from(["dict", "pair", "triple", "har"]),
+)
+def test_every_normalised_variant_of_a_blocked_name_redacts_its_value_in_every_shape(
+    name: str, flips: list[bool], pad: str, dash: bool, value: object, shape: str
+) -> None:
+    n = _variant(name, flips, pad, dash)
+    secret = value if not isinstance(value, str) else "S-" + CANARY + value
+    payload: dict[str, object] = {
+        "dict": {"x": {n: secret}},
+        "pair": {"x": [[n, secret]]},
+        "triple": {"x": [(n, secret, "e")]},
+        "har": {"x": [{"name": n, "value": secret}]},
+    }[shape]
+    out = c.sanitize_payload(payload)
+    text = json.dumps(out)
+    assert CANARY not in text
+    assert "[redacted]" in text
+    assert c.sanitize_payload(out) == out
+
+
+@SETTINGS
+@given(name=st.sampled_from(["secret_ref", "token_count", "authorization_basis", "tokens", "sessions", "x-api-key-id"]),
+       value=st.one_of(cps_text.filter(lambda s: "\x00" not in s and s.isprintable()), st.integers(0, 99)))
+def test_exactness_non_blocked_names_are_never_redacted(name: str, value: object) -> None:
+    out = c.sanitize_payload({name: value, "p": [[name, value]]})
+    assert "[redacted]" not in json.dumps(out)
