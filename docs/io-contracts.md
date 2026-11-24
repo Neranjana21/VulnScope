@@ -12,6 +12,7 @@ Changing anything here requires an ADR and the owner's approval. Every object ca
 ## Reason codes (request validation)
 `AUTH_NOT_CONFIRMED, SCOPE_EMPTY, TARGET_DENIED, TARGET_NOT_IN_SCOPE, RATE_ABOVE_CEILING, WINDOW_MISSING, WINDOW_EXPIRED, WINDOW_NAIVE_DATETIME, WINDOW_TOO_LONG, SECRET_INLINE, UNKNOWN_FIELD, PROFILE_NOT_ENABLED, IDEMPOTENCY_CONFLICT, FORBIDDEN_ROLE, NOT_FOUND`
 Policy decision `rule_id` values: `ALLOW, DENY_ALWAYS_LIST, DENY_PRIVATE_RANGE, EXCLUDED, OUT_OF_SCOPE, EXPIRED, NOT_YET_VALID, REVOKED, RATE, RESOLVED_OUTSIDE_EXPECTED, REDIRECT_DENIED, RESOLUTION_FAILED`
+Transport and server codes (ADR-0006): `UNAUTHENTICATED` (401), `INVALID_REQUEST` (400, 405, 413, 415, and 422 where no code above applies), `INTERNAL_ERROR` (500), `UNAVAILABLE` (503). An unknown route is `NOT_FOUND` (404). `REVOKED` and `EXPIRED` (from the `rule_id` list) are also valid `code` values on scan creation (409).
 
 ## Engagement: `POST /v1/engagements`
 ```json
@@ -38,6 +39,7 @@ Other engagement endpoints: `GET /v1/engagements/{id}`; `POST /v1/engagements/{i
 ## Scan: `POST /v1/engagements/{id}/scans`
 `{"schema_version":1, "stages":["discover","detect","validate","path"], "options":{"write_tests":false}, "schedule":null}`
 Fails with `REVOKED`/`EXPIRED`/`NOT_FOUND` when the engagement is not active. `write_tests=true` is rejected unless the engagement authorization statement explicitly covers it (S2+). Response `202`: `{scan_id, status:"queued"}`.
+Scan status values: `pending`, `queued`, `running`, `cancelled`. Allowed transitions: `pending -> queued`, `pending -> cancelled`, `queued -> running`, `queued -> cancelled`, `running -> cancelled`. `cancelled` is terminal and never restarts.
 `GET /v1/scans/{id}`, `GET /v1/scans/{id}/findings`, `GET /v1/scans/{id}/paths`, `GET /v1/scans/{id}/report?format=html|pdf|json`.
 
 ## Policy decision
