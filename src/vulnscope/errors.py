@@ -1,6 +1,10 @@
 """RFC 9457 ``application/problem+json`` error shape and the reason-code
 enum, copied verbatim from ``docs/io-contracts.md`` ("Reason codes" /
 "Conventions") -- not re-derived, per the plan's contract-fidelity rule.
+``ReasonCode`` also carries the four transport/server codes added by ADR-0006
+(``UNAUTHENTICATED``, ``INVALID_REQUEST``, ``INTERNAL_ERROR``, ``UNAVAILABLE``).
+``PolicyReasonCode`` carries the two policy ``rule_id`` values the contract's
+Scan section also names as error codes (``REVOKED``/``EXPIRED``).
 """
 from __future__ import annotations
 
@@ -11,7 +15,8 @@ from pydantic import BaseModel, ConfigDict
 
 class ReasonCode(str, Enum):
     """Request-validation reason codes, verbatim from
-    docs/io-contracts.md's "Reason codes" section."""
+    docs/io-contracts.md's "Reason codes" section, plus the four ADR-0006
+    transport and server codes (additive, schema_version stays 1)."""
 
     AUTH_NOT_CONFIRMED = "AUTH_NOT_CONFIRMED"
     SCOPE_EMPTY = "SCOPE_EMPTY"
@@ -28,6 +33,21 @@ class ReasonCode(str, Enum):
     IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
     FORBIDDEN_ROLE = "FORBIDDEN_ROLE"
     NOT_FOUND = "NOT_FOUND"
+    # ADR-0006
+    UNAUTHENTICATED = "UNAUTHENTICATED"
+    INVALID_REQUEST = "INVALID_REQUEST"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
+    UNAVAILABLE = "UNAVAILABLE"
+
+
+class PolicyReasonCode(str, Enum):
+    """Policy-decision ``rule_id`` values that docs/io-contracts.md "Scan"
+    also names as problem+json ``code`` values on scan creation. Deliberately
+    only these two: every other deny maps to a ``ReasonCode``
+    (TARGET_DENIED / TARGET_NOT_IN_SCOPE)."""
+
+    REVOKED = "REVOKED"
+    EXPIRED = "EXPIRED"
 
 
 class ProblemDetail(BaseModel):
@@ -44,6 +64,6 @@ class ProblemDetail(BaseModel):
     status: int
     detail: str
     instance: str | None = None
-    code: ReasonCode
+    code: ReasonCode | PolicyReasonCode
     ledger_seq: int | None = None
     request_id: str | None = None
