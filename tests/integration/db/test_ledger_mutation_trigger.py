@@ -173,4 +173,32 @@ async def test_disable_trigger_break_glass_path_is_documented_limitation(
             assert result.scalar_one() == "x"
     finally:
         async with migrator_engine.begin() as conn:
-            await conn.execute(text("ALTER TABLE ledger_entries ENABLE TRIGGER ALL"))
+            # ENABLE ALWAYS (tgenabled='A') like migration 0001; ENABLE TRIGGER ALL would set 'O'
+            # and permanently weaken the guard on this database.
+            await conn.execute(
+                text("ALTER TABLE ledger_entries ENABLE ALWAYS TRIGGER ledger_entries_no_mutate")
+            )
+            await conn.execute(
+                text("ALTER TABLE ledger_entries ENABLE ALWAYS TRIGGER ledger_entries_no_truncate")
+            )
+
+    # The restore must leave the guard exactly as migration 0001 created it: tgenabled = 'A'
+    # (ENABLE ALWAYS), so the replica-role test keeps holding on this database. Boolean only.
+    async with migrator_engine.connect() as conn:
+        rows = (
+            await conn.execute(
+                text(
+                    "SELECT t.tgname, t.tgenabled FROM pg_trigger t "
+                    "JOIN pg_class r ON r.oid = t.tgrelid "
+                    "WHERE r.relname IN ('ledger_entries', 'checkpoints') AND NOT t.tgisinternal"
+                )
+            )
+        ).all()
+    state = {n: (e.decode() if isinstance(e, bytes) else e) for n, e in rows}
+    expected = {
+        "ledger_entries_no_mutate", "ledger_entries_no_truncate",
+        "checkpoints_no_mutate", "checkpoints_no_truncate",
+    }
+    assert set(state) == expected and all(v == "A" for v in state.values()), (
+        "ledger/checkpoint triggers are not all ENABLE ALWAYS (tgenabled='A') after the restore"
+    )
