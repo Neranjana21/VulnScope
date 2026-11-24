@@ -54,3 +54,42 @@ Both licences are exempt from `docs/licence-allowlist.txt` under the same OQ-6 r
 other row in this file: neither the LGPL-2.1 engine nor the Rules-License-governed rule pack is
 shipped in any image or package VulnScope distributes — both run only inside CI, against our own
 source tree.
+
+## `scripts/with_task_db.py` (local helper, not CI)
+
+Runs one command against a disposable per-task database on the dev Postgres
+(`docker compose -p vulnscope -f docker-compose.dev.yml up -d`, 127.0.0.1:5432 only). It does not
+start the stack itself; if the database is down it exits 69 with `database_reachable=false`.
+
+```
+python3 scripts/with_task_db.py --mode scratch --task b [--with-test-url] [--keep] [--lock-wait S] -- pytest ...
+python3 scripts/with_task_db.py --mode task    --task d [--keep] [--lock-wait S] -- pytest ...
+```
+
+- `scratch`: the child gets `VULNSCOPE_MIGRATION_DATABASE_URL` and `VULNSCOPE_TEST_APP_DATABASE_URL`
+  (shared database `vulnscope`, as the R1 plugin requires) and `VULNSCOPE_REQUIRE_INTEGRATION=1`.
+  With `--with-test-url` it also gets `VULNSCOPE_TEST_DATABASE_URL` for a fresh migrated
+  `vulnscope_task<letter>_<hex8>`.
+- `task`: the child gets only the app-role `VULNSCOPE_DATABASE_URL` and `VULNSCOPE_TEST_DATABASE_URL`
+  for that database. Admin credentials never reach the child (task-d PD-17).
+- The child environment is built from PATH, HOME, LANG, VIRTUAL_ENV, PYTHONPATH plus the variables
+  above; nothing else is inherited. Passwords come from the untracked `.env` (main checkout when run
+  from a worktree; parent environment as fallback) and travel by environment only.
+- Boolean guards before the child starts: host 127.0.0.1, port 5432, database name
+  `^vulnscope_task[a-z]_[0-9a-f]{8}$`, exact child-environment shape. Row counts of `ledger_entries`,
+  `chain_heads`, `checkpoints` in the shared `vulnscope` database are compared before and after; a
+  difference exits 72. One repo-wide flock (`<git common dir>/vulnscope-db.lock`) covers the whole
+  session; if held it exits 75 immediately unless `--lock-wait` is given.
+- Output is fixed `with_task_db: key=bool|int` lines on stderr; no URL or password is printed. The
+  child's own output passes through (the R1 plugin scrubs its own reports). Exit codes: child's code
+  (128+signal when killed), 2 usage, 66 credentials/config, 69 unreachable, 70 guard, 71 database
+  error or drop failure, 72 shared ledger changed, 73 migration failed, 75 lock held.
+- Uses `asyncpg` (already a pinned dependency) for the admin statements and `alembic` for migration.
+  Leftover `vulnscope_task*` databases (for example after SIGKILL or `--keep`) are not swept.
+- Fix round 1: the repo root comes from the script's own location (needs `alembic.ini` and
+  `src/vulnscope`), never the CWD; the shared database's `vulnscope.env=dev-disposable` marker is
+  checked before any CREATE/DROP/migrate (exit 70 otherwise); `.env` must be owned by you and not
+  group/world readable (exit 66); the child `PYTHONPATH` is pinned to the repo `src` and the parent's
+  is ignored. The shared-ledger check compares row counts plus an md5 over every row's chain position
+  and hash. It is detective only: it cannot see DDL, grants, or a change reverted before the second
+  snapshot, and in `scratch` mode the child holds the migrator URL for the shared database.
