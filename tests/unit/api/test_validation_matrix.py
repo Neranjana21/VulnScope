@@ -85,7 +85,7 @@ CASES: list[tuple[str, Callable[[dict[str, Any]], None], list[str]]] = [
      ["INVALID_REQUEST"]),
     ("secret in statement", _set(["authorization", "statement"], "approved, password=hunter2xx"),
      ["SECRET_INLINE"]),
-    ("secret in name", _set(["name"], "aws AKIAABCDEFGHIJKLMNOP"), ["SECRET_INLINE"]),
+    ("secret in name", _set(["name"], "aws AKIAIOSFODNN7EXAMPLE"), ["SECRET_INLINE"]),
     ("secret in approver", _set(["authorization", "approver"],
                                 "-----BEGIN RSA PRIVATE KEY-----"), ["SECRET_INLINE"]),
     ("two violations", lambda p: (_set(["authorization", "confirmed"], False)(p),
