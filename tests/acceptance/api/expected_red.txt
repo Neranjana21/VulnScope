@@ -8,6 +8,7 @@
 # Dry-run (test self-check against D-early doubles, NOT gate evidence): add -o accept_dryrun=1.
 # Dry-run result recorded 2026-11-24: 73 pass, 4 fail = DE-01, DE-02 (real product findings) and
 # test_d_out_of_scope / test_f_private_literal... (doubles do not model OUT_OF_SCOPE).
+# Update 2026-11-25 (D-early fix round 1): DE-02 node rewritten to the amended spec, DE-01 node rewritten to the 422 reserved-key spec, and a deterministic shed node added; dry-run on the fix-round-1 build: all 7 nodes of test_idempotency_wire.py pass.
 tests/acceptance/api/test_ac1_scan_deny_rule_ids.py::test_a_revoked | RED | WiringNotAvailable: production wiring is not available
 tests/acceptance/api/test_ac1_scan_deny_rule_ids.py::test_b_expired | RED | WiringNotAvailable: production wiring is not available
 tests/acceptance/api/test_ac1_scan_deny_rule_ids.py::test_c_excluded | RED | WiringNotAvailable: production wiring is not available
@@ -82,10 +83,12 @@ tests/acceptance/api/test_idempotency_wire.py::test_same_key_same_body_replays_a
 tests/acceptance/api/test_idempotency_wire.py::test_no_key_twice_gives_two_resources | RED | WiringNotAvailable: production wiring is not available
 tests/acceptance/api/test_idempotency_wire.py::test_same_key_same_invalid_body_replays_one_intake_entry | RED | WiringNotAvailable: production wiring is not available
 tests/acceptance/api/test_idempotency_wire.py::test_key_syntax_is_enforced | RED | WiringNotAvailable: production wiring is not available
-# NOTE test_revoke_retry_after_a_client_key_shaped_like_the_memo_key_still_returns_original: DE-01 (new-test): stays RED after D-final until the revoke memo key is namespaced
+# NOTE test_revoke_retry_after_a_client_key_shaped_like_the_memo_key_still_returns_original: DE-01 (owner-approved spec: reserved client keys revoke-record: / revoke-memo- are 422 INVALID_REQUEST, no write; plain revoke retry returns the original). Dry-run GREEN on the fix-round-1 build; turns green with D-final wiring
 tests/acceptance/api/test_idempotency_wire.py::test_revoke_retry_after_a_client_key_shaped_like_the_memo_key_still_returns_original | RED | WiringNotAvailable: production wiring is not available
-# NOTE test_revoke_with_the_same_idempotency_key_as_create_is_a_conflict: DE-02 (new-test): stays RED after D-final until revoke honours Idempotency-Key or the spec is changed
-tests/acceptance/api/test_idempotency_wire.py::test_revoke_with_the_same_idempotency_key_as_create_is_a_conflict | RED | WiringNotAvailable: production wiring is not available
+# NOTE test_revoke_ignores_idempotency_key_and_stays_naturally_idempotent: DE-02 (spec amended: revoke ignores Idempotency-Key). Dry-run GREEN on the fix-round-1 build; turns green with D-final wiring
+tests/acceptance/api/test_idempotency_wire.py::test_revoke_ignores_idempotency_key_and_stays_naturally_idempotent | RED | WiringNotAvailable: production wiring is not available
+# NOTE test_auth_shed_...: verifier P3-1 / BL-DE-1 deterministic shed path (VULNSCOPE_API_AUTH_* env, shared slot drained). Dry-run GREEN; turns green with D-final wiring
+tests/acceptance/api/test_idempotency_wire.py::test_auth_shed_is_503_with_numeric_retry_after_and_revoke_stays_reachable | RED | WiringNotAvailable: production wiring is not available
 tests/acceptance/api/test_reason_code_meta.py::test_enums_are_exactly_the_documented_sets | GREEN | pure test (no application, no database): passes on D-early
 tests/acceptance/api/test_reason_code_meta.py::test_every_reason_code_has_an_acceptance_case | GREEN | pure test (no application, no database): passes on D-early
 tests/acceptance/api/test_reason_code_meta.py::test_declared_codes_exist_and_exemptions_are_exactly_two | GREEN | pure test (no application, no database): passes on D-early

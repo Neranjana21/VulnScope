@@ -67,16 +67,23 @@ def test_key_syntax_is_enforced(world: World) -> None:
 
 def test_revoke_retry_after_a_client_key_shaped_like_the_memo_key_still_returns_original(
         world: World) -> None:
-    """DE-01. The revoke memo lives in idempotency_keys under
-    sha256('idem-v1:<len(org)>:<org>:revoke-record:<engagement id>'), which is exactly the storage
-    key a CLIENT gets for ``Idempotency-Key: revoke-record:<engagement id>``. A write-role key can
-    therefore occupy the memo row before the revoke. The first revoke still works, but every later
-    retry (AC7 point 4: 'second revoke returns the original body') and every repair sees a non-200,
-    non-claimable row and ends in a 503 after the claim wait."""
+    """DE-01 (owner-approved spec). Client keys with the prefixes ``revoke-record:`` or
+    ``revoke-memo-`` (case-insensitive) are reserved: a create route rejects them with 422
+    INVALID_REQUEST and writes nothing, so a client can never occupy the revoke memo row. A plain
+    revoke retry (AC7 point 4: 'second revoke returns the original body') still returns the
+    original body without a claim-wait 503."""
     a = world.org("assessor")
     eid = world.create(a).json()["id"]
-    squat = world.create(a, key=f"revoke-record:{eid}")  # stores a 201 under the memo key
-    assert squat.status_code == 201
+    n_eng, n_idem = world.engagements_of(a.org_id), world.idem_rows(a.org_id)
+    n_intake = len(world.ledger_rows(a.intake))
+    n_chain = len(world.ledger_rows(f"engagement:{eid}"))
+    for reserved in (f"revoke-record:{eid}", f"REVOKE-RECORD:{eid}", "revoke-memo-v1:x",
+                     "Revoke-Memo-x"):
+        assert_problem(world.create(a, key=reserved), 422, "INVALID_REQUEST")
+    assert world.engagements_of(a.org_id) == n_eng  # no write at all
+    assert world.idem_rows(a.org_id) == n_idem
+    assert len(world.ledger_rows(a.intake)) == n_intake
+    assert len(world.ledger_rows(f"engagement:{eid}")) == n_chain
     first = world.post(f"/v1/engagements/{eid}/revoke", a, {"reason": "t"})
     assert first.status_code == 200
     t0 = time.monotonic()
@@ -85,10 +92,63 @@ def test_revoke_retry_after_a_client_key_shaped_like_the_memo_key_still_returns_
     assert time.monotonic() - t0 < 3.0  # never a 10 s wait followed by a 503
 
 
-def test_revoke_with_the_same_idempotency_key_as_create_is_a_conflict(world: World) -> None:
-    """DE-02. Design 12.4 / PD-18: 'same key on revoke vs create path gives 409'. The revoke
-    handler never reads Idempotency-Key, so the header is silently ignored."""
+def test_revoke_ignores_idempotency_key_and_stays_naturally_idempotent(world: World) -> None:
+    """DE-02 (spec amended, io-contracts: revoke is naturally idempotent and ignores
+    Idempotency-Key). A revoke WITH a header gives the same outcome as one without, creates no
+    row keyed by the client key, never conflicts with a create that used the same key, and a
+    repeated revoke returns the original body."""
     a = world.org("admin")
-    eid = world.create(a, key="k-create-revoke").json()["id"]
-    r = world.post(f"/v1/engagements/{eid}/revoke", a, {"reason": "t"}, key="k-create-revoke")
-    assert_problem(r, 409, "IDEMPOTENCY_CONFLICT")
+    e_key = world.create(a, key="k-create-revoke").json()["id"]
+    e_plain = world.create(a).json()["id"]
+    rows0 = world.idem_rows(a.org_id)
+    r_plain = world.post(f"/v1/engagements/{e_plain}/revoke", a, {"reason": "t"})
+    rows_plain = world.idem_rows(a.org_id) - rows0
+    rows1 = world.idem_rows(a.org_id)
+    r_key = world.post(f"/v1/engagements/{e_key}/revoke", a, {"reason": "t"},
+                       key="k-create-revoke")
+    rows_key = world.idem_rows(a.org_id) - rows1
+    assert r_plain.status_code == r_key.status_code == 200
+    assert set(r_plain.json()) == set(r_key.json())  # same shape, no 409 problem body
+    assert rows_key == rows_plain  # only the recorder's own memo row, nothing keyed by the header
+    # a repeated revoke (same key with another reason, and a new key) returns the original body
+    again = world.post(f"/v1/engagements/{e_key}/revoke", a, {"reason": "t2"},
+                       key="k-create-revoke")
+    other = world.post(f"/v1/engagements/{e_key}/revoke", a, {"reason": "t3"}, key="another-key")
+    assert again.status_code == other.status_code == 200
+    assert again.json() == other.json() == r_key.json()
+    assert world.idem_rows(a.org_id) == rows1 + rows_key  # repeats add no rows
+    assert len(world.ledger_rows(f"engagement:{e_key}")) == 2  # create + exactly one revoke
+
+
+@pytest.fixture
+def tight_auth_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One shared and one reserved auth slot with a 50 ms queue wait
+    (config.load_admission_overrides). Request it BEFORE ``world``: the lifespan reads the
+    environment at startup."""
+    monkeypatch.setenv("VULNSCOPE_API_AUTH_INFLIGHT", "1")
+    monkeypatch.setenv("VULNSCOPE_API_AUTH_RESERVED", "1")
+    monkeypatch.setenv("VULNSCOPE_API_AUTH_QUEUE_WAIT_S", "0.05")
+
+
+def test_auth_shed_is_503_with_numeric_retry_after_and_revoke_stays_reachable(
+        tight_auth_env: None, world: World) -> None:
+    """Verifier P3-1 (BL-DE-1): deterministic shed path. The only shared auth slot is held (the
+    semaphore is drained directly, no timing race), so a non-revoke call is shed after the queue
+    wait with 503 UNAVAILABLE and a numeric Retry-After, while revoke uses the reserved slot."""
+    a = world.org("admin")
+    eid = world.create(a).json()["id"]
+    sem = world.app.state.d.gates.auth._shared
+    held = sem._value
+    sem._value = 0
+    try:
+        t0 = time.monotonic()
+        shed = world.get(f"/v1/engagements/{eid}", a)
+        waited = time.monotonic() - t0
+        assert_problem(shed, 503, "UNAVAILABLE")
+        assert shed.headers["retry-after"].isdigit() and int(shed.headers["retry-after"]) >= 1
+        assert waited < 3.0  # a fast shed, not a hang
+        ok = world.post(f"/v1/engagements/{eid}/revoke", a, {"reason": "t"})
+        assert ok.status_code == 200  # N-03: the reserved slot keeps revocation reachable
+    finally:
+        sem._value = held
+    assert world.get(f"/v1/engagements/{eid}", a).status_code == 200  # recovers once released
