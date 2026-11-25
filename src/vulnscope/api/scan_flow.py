@@ -280,4 +280,3 @@ async def _commit(request: Request, state: AppState, principal: Principal,
         raise await _revoked_race(request, state, principal, snap, target, adapter, prog)
     claim.key = None
     return json_response(body, 202)
-

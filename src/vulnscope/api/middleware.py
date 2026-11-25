@@ -111,5 +111,3 @@ def _declared_length(scope: Scope) -> int | None:
             except ValueError:
                 return None
     return None
-
-
