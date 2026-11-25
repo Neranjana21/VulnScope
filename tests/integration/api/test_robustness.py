@@ -165,21 +165,28 @@ async def test_no_migrator_secret_leak_in_responses_logs_or_ledger(
 
 
 async def test_auth_flood_valid_callers_are_served_or_fast_503(env: Env) -> None:
+    """A valid caller during a 500-request flood is served (200) or shed with a 503 that carries
+    Retry-After. The bound is 6.0 s as a literal, not derived from any setting: the default AuthGate
+    wait is 3.0 s (measured, docs/gates/de-early-measurements.md), so a shed answer arrives after
+    about 3 s and a caller queued behind the flood may be served just after 3 s on a starved host;
+    6.0 s still fails a hang or an unbounded queue."""
     org = await env.org()
     eid = await env.seed_engagement(org)
     flood = [env.client.get("/v1/engagements/x", headers={"Authorization": f"Bearer {TOK}{i:04d}"})
              for i in range(500)]
 
-    async def valid() -> tuple[int, float]:
+    async def valid() -> tuple[int, float, str | None]:
         t = time.monotonic()
         r = await env.get(f"/v1/engagements/{eid}", org)
-        return r.status_code, time.monotonic() - t
+        return r.status_code, time.monotonic() - t, r.headers.get("retry-after")
 
     res = await asyncio.gather(*flood, *[valid() for _ in range(20)])
     assert all(r.status_code in (401, 503) for r in res[:500])  # type: ignore[union-attr]
     assert any(r.status_code == 401 for r in res[:500])  # type: ignore[union-attr]
-    for code, dt in res[500:]:  # type: ignore[misc]
-        assert code in (200, 503) and dt < 3.0
+    for code, dt, retry_after in res[500:]:  # type: ignore[misc]
+        assert code in (200, 503) and dt < 6.0
+        if code == 503:
+            assert retry_after is not None and retry_after.isdigit()
 
 
 async def test_auth_flood_revoke_reserved_slots(api_db: Any) -> None:
@@ -316,3 +323,40 @@ async def test_every_error_class_is_problem_json_end_to_end(env: Env) -> None:
         assert "loc" not in body and not isinstance(body["detail"], list)
     assert isinstance(BackendFailure("x"), Exception)
     _ = os
+
+
+async def test_auth_flood_key_lookups_never_exceed_the_default_slot_count(env: Env) -> None:
+    """DE-04: with the DEFAULT Timeouts the number of API-key lookups running at the same moment
+    is bounded by ``auth_inflight`` (the flood cannot take the pool). Counted at the driver
+    boundary, so it does not depend on the gate's own bookkeeping. Kills a default of 600."""
+    from sqlalchemy import event
+
+    assert env.state.timeouts.auth_inflight == Timeouts().auth_inflight
+    running = peak = 0
+
+    def before(conn: Any, cursor: Any, statement: str, *_: Any) -> None:
+        nonlocal running, peak
+        if "api_keys" in statement:
+            running += 1
+            peak = max(peak, running)
+
+    def after(conn: Any, cursor: Any, statement: str, *_: Any) -> None:
+        nonlocal running
+        if "api_keys" in statement:
+            running -= 1
+
+    sync = env.engine.sync_engine
+    event.listen(sync, "before_cursor_execute", before)
+    event.listen(sync, "after_cursor_execute", after)
+    try:
+        flood = [env.client.get("/v1/engagements/x",
+                                headers={"Authorization": f"Bearer {TOK}{i:04d}"})
+                 for i in range(300)]
+        res = await asyncio.gather(*flood)
+    finally:
+        event.remove(sync, "before_cursor_execute", before)
+        event.remove(sync, "after_cursor_execute", after)
+    assert {r.status_code for r in res} <= {401, 503} and any(r.status_code == 401 for r in res)
+    # literal bound on purpose: comparing with Timeouts().auth_inflight would be true for any
+    # default, including a mutant that raises it (M13); this must equal the pinned default (8)
+    assert 2 <= peak <= 8
