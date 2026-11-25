@@ -1,0 +1,91 @@
+# expected_red.txt: expected outcome of tests/acceptance/api on the D-EARLY build (stress-tester owned).
+# Format: node id | outcome | reason. RED reason is a regex (re.search, DOTALL) against the JUnit failure/error text.
+# Every RED node here fails at fixture setup because the REAL lifespan refuses to start: D-early
+# wiring.build_production_wiring raises WiringNotAvailable (fail closed, PD-23). No node is skipped.
+# They turn green when D-final binds the real policy engine and ledger (see per-node notes below).
+# Compare with: python -I tests/acceptance/api/check_expected_red.py <junit.xml>
+# Run: scripts/with_task_db.py --mode task --task d -- pytest tests/acceptance/api -rfE --junitxml=<f>
+# Dry-run (test self-check against D-early doubles, NOT gate evidence): add -o accept_dryrun=1.
+# Dry-run result recorded 2026-11-24: 73 pass, 4 fail = DE-01, DE-02 (real product findings) and
+# test_d_out_of_scope / test_f_private_literal... (doubles do not model OUT_OF_SCOPE).
+tests/acceptance/api/test_ac1_scan_deny_rule_ids.py::test_a_revoked | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac1_scan_deny_rule_ids.py::test_b_expired | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac1_scan_deny_rule_ids.py::test_c_excluded | RED | WiringNotAvailable: production wiring is not available
+# NOTE test_d_out_of_scope: expected to turn green only with the real policy engine (rule OUT_OF_SCOPE)
+tests/acceptance/api/test_ac1_scan_deny_rule_ids.py::test_d_out_of_scope | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac1_scan_deny_rule_ids.py::test_e_always_deny_list | RED | WiringNotAvailable: production wiring is not available
+# NOTE test_f_private_literal_in_lab_profile_is_out_of_scope: expected to turn green only with the real policy engine (lab profile, private literal)
+tests/acceptance/api/test_ac1_scan_deny_rule_ids.py::test_f_private_literal_in_lab_profile_is_out_of_scope | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac1_scan_deny_rule_ids.py::test_g_not_yet_valid_is_409_target_denied | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac1_scan_deny_rule_ids.py::test_h_replay_rules | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac1_scan_deny_rule_ids.py::test_scan_request_edges_never_reach_the_gate | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_declared_codes_match_the_cases | GREEN | pure test (no application, no database): passes on D-early
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[01-auth-not-confirmed] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[02-scope-empty] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[03-target-not-in-scope] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[04-target-denied-excluded] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[05a-metadata-in-allow] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[05b-metadata-not-in-allow] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[06-rate-above-ceiling] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[07a-window-missing] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[07b-not-after-missing] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[08-window-expired] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[09-window-naive] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[10-window-too-long] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[11-secret-inline] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[12a-unknown-field-root] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[12b-unknown-field-nested] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_matrix[14-two-violations-fixed-precedence] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_13_profile_not_enabled | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_controls_exact_boundaries_are_accepted | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_fixed_precedence[0-UNKNOWN_FIELD] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_fixed_precedence[1-WINDOW_NAIVE_DATETIME] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_fixed_precedence[2-AUTH_NOT_CONFIRMED] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_fixed_precedence[3-SCOPE_EMPTY] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_fixed_precedence[4-RATE_ABOVE_CEILING] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_fixed_precedence[5-TARGET_DENIED] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_transport_failures_are_invalid_request_and_never_ledgered[rate-zero] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_transport_failures_are_invalid_request_and_never_ledgered[nan-literal] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_transport_failures_are_invalid_request_and_never_ledgered[name-wrong-type] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_transport_failures_are_invalid_request_and_never_ledgered[name-256-chars] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_transport_failures_are_invalid_request_and_never_ledgered[name-nul] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_transport_failures_are_invalid_request_and_never_ledgered[content-type-text-plain] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_transport_failures_are_invalid_request_and_never_ledgered[body-300kb-declared-length] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_transport_failures_are_invalid_request_and_never_ledgered[body-300kb-chunked] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_transport_failures_are_invalid_request_and_never_ledgered[empty-body] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_transport_failures_are_invalid_request_and_never_ledgered[truncated-json] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_transport_failures_are_invalid_request_and_never_ledgered[idempotency-key-256-chars] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_transport_failures_are_invalid_request_and_never_ledgered[two-idempotency-key-headers] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_unauthenticated_413_precedes_nothing_else | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac6_mutations.py::test_ac6_rejection_body_is_deterministic_per_code | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac7_revoke_flow.py::test_ac7_create_revoke_scan_revoke_again | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac7_revoke_flow.py::test_ac7_revoke_payload_has_hashes_never_the_reason | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac7_revoke_flow.py::test_ac7_scan_after_revoke_cancels_nothing_and_inserts_no_scan | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac7_revoke_flow.py::test_ac7_replayed_revoked_scan_response_is_terminal_replay | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_401_bodies_identical_for_every_bad_credential[GET-/v1/engagements/{eid}] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_401_bodies_identical_for_every_bad_credential[POST-/v1/engagements] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_401_bodies_identical_for_every_bad_credential[POST-/v1/engagements/{eid}/revoke] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_401_bodies_identical_for_every_bad_credential[POST-/v1/engagements/{eid}/scans] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_401_bodies_identical_for_every_bad_credential[GET-/v1/scans/{eid}] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_401_bodies_identical_for_every_bad_credential[GET-/v1/ledger/verify?chain=intake:{eid}] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_401_bodies_identical_for_every_bad_credential[GET-/metrics] | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_healthz_is_open_and_unknown_path_is_404_with_or_without_key | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_openapi_and_docs_are_not_exposed | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_viewer_cannot_write_but_can_read | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_unknown_role_value_fails_closed_to_403 | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_assessor_may_create_but_not_read_metrics | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_cross_org_is_404_identical_to_unknown_id | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_own_org_reads_still_work_after_foreign_probes | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_same_idempotency_key_in_two_orgs_never_replays_across | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_ac8_auth_and_isolation.py::test_verify_checkpoint_parameter_is_refused_in_every_form | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_idempotency_wire.py::test_same_key_same_body_replays_and_different_body_conflicts | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_idempotency_wire.py::test_no_key_twice_gives_two_resources | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_idempotency_wire.py::test_same_key_same_invalid_body_replays_one_intake_entry | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_idempotency_wire.py::test_key_syntax_is_enforced | RED | WiringNotAvailable: production wiring is not available
+# NOTE test_revoke_retry_after_a_client_key_shaped_like_the_memo_key_still_returns_original: DE-01 (new-test): stays RED after D-final until the revoke memo key is namespaced
+tests/acceptance/api/test_idempotency_wire.py::test_revoke_retry_after_a_client_key_shaped_like_the_memo_key_still_returns_original | RED | WiringNotAvailable: production wiring is not available
+# NOTE test_revoke_with_the_same_idempotency_key_as_create_is_a_conflict: DE-02 (new-test): stays RED after D-final until revoke honours Idempotency-Key or the spec is changed
+tests/acceptance/api/test_idempotency_wire.py::test_revoke_with_the_same_idempotency_key_as_create_is_a_conflict | RED | WiringNotAvailable: production wiring is not available
+tests/acceptance/api/test_reason_code_meta.py::test_enums_are_exactly_the_documented_sets | GREEN | pure test (no application, no database): passes on D-early
+tests/acceptance/api/test_reason_code_meta.py::test_every_reason_code_has_an_acceptance_case | GREEN | pure test (no application, no database): passes on D-early
+tests/acceptance/api/test_reason_code_meta.py::test_declared_codes_exist_and_exemptions_are_exactly_two | GREEN | pure test (no application, no database): passes on D-early
