@@ -57,3 +57,22 @@ async def test_lifespan_wires_state_and_reconciles_unrecorded_revokes(
     await asyncio.to_thread(run)
     (e,) = env.chain.entries(f"engagement:{eid}", "engagement.revoked")
     assert e.actor == "system" and dict(e.payload)["repaired"] is True
+
+
+@pytest.mark.integration
+async def test_admission_env_reaches_the_gates(env: Env, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VULNSCOPE_API_AUTH_INFLIGHT", "9")
+    monkeypatch.setenv("VULNSCOPE_API_AUTH_QUEUE_WAIT_S", "3.5")
+    wiring = Wiring(chain_backend=env.chain, verify_fn=env.verify,
+                    checkpoint_source=env.checkpoints, clock=env.clock, sanitize=sanitize,
+                    target_checker=env.state.target_checker, scan_gate=env.gate)
+    monkeypatch.setattr(main, "build_production_wiring", lambda settings, engine: wiring)
+    app = main.create_app(env.settings)
+
+    def run() -> tuple[int, float, int]:
+        with TestClient(app) as c:
+            assert c.get("/healthz").status_code == 200
+            t = app.state.d.timeouts
+            return t.auth_inflight, t.auth_queue_wait_s, t.auth_reserved
+
+    assert await asyncio.to_thread(run) == (9, 3.5, 2)

@@ -10,9 +10,11 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import replace
 
 from fastapi import FastAPI
 
+from vulnscope.api.limits import Timeouts
 from vulnscope.api.middleware import OuterGuard
 from vulnscope.api.problem import install
 from vulnscope.api.routers import engagements, health, ledger, scans
@@ -24,7 +26,7 @@ from vulnscope.api.startup import (
 )
 from vulnscope.api.state import build_state
 from vulnscope.api.wiring import build_production_wiring
-from vulnscope.config import Settings
+from vulnscope.config import Settings, load_admission_overrides
 from vulnscope.db.session import get_async_engine
 
 
@@ -32,6 +34,15 @@ from vulnscope.db.session import get_async_engine
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     validate_settings(settings)
+    base = Timeouts()
+    # invalid VULNSCOPE_API_AUTH_* values stop startup (fail closed); env is read in config.py only
+    adm = load_admission_overrides({
+        "auth_inflight": base.auth_inflight, "auth_reserved": base.auth_reserved,
+        "auth_queue_wait_s": base.auth_queue_wait_s,
+        "auth_db_budget_s": base.auth_db_budget_s})
+    timeouts = replace(
+        base, auth_inflight=adm.auth_inflight, auth_reserved=adm.auth_reserved,
+        auth_queue_wait_s=adm.auth_queue_wait_s, auth_db_budget_s=adm.auth_db_budget_s)
     assert settings.database_url is not None
     engine = get_async_engine(settings.database_url)
     try:
@@ -45,7 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             chain_backend=wiring.chain_backend, verify_fn=wiring.verify_fn,
             checkpoint_source=wiring.checkpoint_source, clock=wiring.clock,
             sanitize=wiring.sanitize, target_checker=wiring.target_checker,
-            scan_gate=wiring.scan_gate)
+            scan_gate=wiring.scan_gate, timeouts=timeouts)
         install_log_filters()
         app.state.d = state
         task = start_reconciliation(state)

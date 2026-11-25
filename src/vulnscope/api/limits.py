@@ -59,11 +59,12 @@ MEDIA_TYPE_PROBLEM = "application/problem+json"
 @dataclass(frozen=True)
 class Timeouts:
     request_deadline_s: float = 30.0
-    # AuthGate (PD-10, N-03): shared slots plus slots reserved for the revoke route
-    auth_inflight: int = 6
+    # AuthGate (PD-10, N-03): shared slots plus slots reserved for the revoke route. Sized from
+    # the measurement in docs/gates/de-early-measurements.md (DE-03, DE-04).
+    auth_inflight: int = 8
     auth_reserved: int = 2
-    auth_queue_wait_s: float = 1.0
-    auth_db_budget_s: float = 2.0
+    auth_queue_wait_s: float = 3.0
+    auth_db_budget_s: float = 3.0
     db_op_budget_s: float = 5.0
     # Idempotency claims
     claim_wait_s: float = 10.0
