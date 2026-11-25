@@ -56,3 +56,10 @@ S1 pre-gate: worker must require the `scan.created` entry and re-decide at job s
 - BL-D-R9 (low): `idempotency_keys` and revoke-memo rows grow without a purge job.
 - BL-D-CLAIMRACE (low): a revoke winner stalled over 120 s, or a chain beyond the search cap, can record a duplicate `engagement.revoked` (ledger stays valid, lowest seq wins).
 - BL-D-TWOORG (low): two orgs can fill the global scan-creation cap (4) and starve a third.
+
+## Addendum 2026-11-25 (D-early fix round 1, BL-DE-2)
+- Revoke is naturally idempotent and IGNORES the `Idempotency-Key` header: it is neither read nor stored under the client key. Single-flight and replay for revoke come from the memo row below, not from the client key.
+- The revoke memo lives in its own key space: stored key = `sha256` of `revoke-memo-v1:<len(org_id)>:<org_id>:<engagement_id>`, a preimage namespace disjoint from client keys (every client preimage starts with `idem-v1:`), so no client key can address or occupy a memo row.
+- Client keys beginning `revoke-record:` or `revoke-memo-` (case-insensitive) are reserved and rejected with 422 `INVALID_REQUEST` on create routes.
+- An invalid memo row (failing the recorder's validity check) is treated as corrupt and re-recorded instead of waited on.
+- Admission limits (AuthGate slots, reserved slots, queue wait, DB budget) are read only in `config.py`, defaults 8 / 2 / 3.0 s / 3.0 s, measured in `docs/gates/de-early-measurements.md` (local); a shed request gets 503 with a numeric `Retry-After`.
