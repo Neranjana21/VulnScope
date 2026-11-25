@@ -28,9 +28,21 @@ from vulnscope.models.idempotency import IdempotencyKeyRow
 _KEY_RE = re.compile(r"[\x21-\x7e]{1,255}")
 
 
+# Client Idempotency-Keys that may never be used (DE-01). The revoke recorder keeps its memo row in
+# this table under a key derived from a DIFFERENT preimage namespace (``revoke-memo-v1:``), which no
+# client key can reach because every client preimage starts with ``idem-v1:``. These prefixes are
+# also refused up front, so a client cannot even stage the old ``revoke-record:<id>`` shape.
+# Lowercase; matching is case-insensitive.
+RESERVED_KEY_PREFIXES = ("revoke-record:", "revoke-memo-")
+
+
+def storage_preimage(org_id: str, raw_key: str) -> str:
+    return f"idem-v1:{len(org_id)}:{org_id}:{raw_key}"
+
+
 def storage_key(org_id: str, raw_key: str) -> str:
     """Injective for any org id content: ``idem-v1:<len(org)>:<org>:<key>``, SHA-256 hex."""
-    return hashlib.sha256(f"idem-v1:{len(org_id)}:{org_id}:{raw_key}".encode()).hexdigest()
+    return hashlib.sha256(storage_preimage(org_id, raw_key).encode()).hexdigest()
 
 
 def request_hash(method: str, path: str, tree: Any) -> str:
@@ -43,6 +55,8 @@ def parse_key_header(values: Sequence[str]) -> str | None:
     if not values:
         return None
     if len(values) != 1 or not _KEY_RE.fullmatch(values[0]) or len(values[0]) > MAX_KEY_LEN:
+        raise ProblemError(422, ReasonCode.INVALID_REQUEST, Detail.BAD_REQUEST)
+    if values[0].lower().startswith(RESERVED_KEY_PREFIXES):
         raise ProblemError(422, ReasonCode.INVALID_REQUEST, Detail.BAD_REQUEST)
     return values[0]
 

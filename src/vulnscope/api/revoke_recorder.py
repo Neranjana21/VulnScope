@@ -41,9 +41,14 @@ TAIL = 256
 LIVE_SCAN_STATUSES = ("pending", "queued", "running")
 
 
+def memo_preimage(org_id: str, engagement_id: str) -> str:
+    """A namespace disjoint from ``idempotency.storage_preimage`` (which always starts with
+    ``idem-v1:``), so no client Idempotency-Key can address or occupy a memo row (DE-01)."""
+    return f"revoke-memo-v1:{len(org_id)}:{org_id}:{engagement_id}"
+
+
 def memo_key(org_id: str, engagement_id: str) -> str:
-    return hashlib.sha256(
-        f"idem-v1:{len(org_id)}:{org_id}:revoke-record:{engagement_id}".encode()).hexdigest()
+    return hashlib.sha256(memo_preimage(org_id, engagement_id).encode()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -138,6 +143,8 @@ async def ensure_revoked_entry(state: AppState, snap: EngagementSnapshot, *, act
                     take = "unknown"
             elif row.status == 200:
                 memo_seq = row.body.get("seq")
+            elif row.status != 0:  # not a claim and not a memo: foreign or corrupt, never waited on
+                memo_seq = -1  # fails validation below: discard the row and record again
             else:
                 cutoff = now - timedelta(seconds=t.revoke_claim_stale_s)
                 if row.created_at < cutoff and await takeover(s, key, now, cutoff):

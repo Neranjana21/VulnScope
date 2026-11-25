@@ -5,7 +5,7 @@ Changing anything here requires an ADR and the owner's approval. Every object ca
 ## Conventions
 - JSON, UTF-8. Timestamps are ISO8601 UTC with `Z`; naive datetimes are rejected (`WINDOW_NAIVE_DATETIME`).
 - Auth: `Authorization: Bearer <api key>`; keys are hashed at rest. Roles: `admin`, `assessor`, `viewer`.
-- `Idempotency-Key` header on every POST that creates a resource. Same key + same body returns the original response; same key + different body returns 409. Keys kept 24 h.
+- `Idempotency-Key` header on every POST that creates a resource. Same key + same body returns the original response; same key + different body returns 409. Keys kept 24 h. `POST /v1/engagements/{id}/revoke` is naturally idempotent (a repeat returns the original response) and ignores `Idempotency-Key`: the header is neither read nor stored there, so the same key on revoke and on a create route never conflicts. Keys beginning `revoke-record:` or `revoke-memo-` (case-insensitive) are reserved and rejected on the create routes with 422 `INVALID_REQUEST`.
 - Errors: RFC 9457 `application/problem+json` with extra fields `code` (enum below), `ledger_seq` (if written) and `request_id`.
 - IDs are UUIDv7. Every row has `org_id`; engagement-scoped rows also `engagement_id`.
 
