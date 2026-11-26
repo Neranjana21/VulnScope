@@ -21,7 +21,7 @@ The design is enterprise-grade in ambition; the implementation grows slice by sl
 | Hash-chained ledger, verification, signed checkpoint support | Built, with limits (ADR-0003, ADR-0005) |
 | Control API: API keys, idempotency, revoke | Built, with limits (ADR-0006); keep it on localhost |
 | Database table grants applied by migrations | Built, with limits (ADR-0004) |
-| One response-header check and an HTML report | Development spike only (ADR-0012, ADR-0013) |
+| One response-header check and an HTML report | Development spike only (ADR-0012, ADR-0013, ADR-0014) |
 | Egress gateway, workers, broker, job tokens, isolation | Planned (ADR-0002) |
 | Tool adapters, discovery, further validators | Planned |
 | Attack graph, risk scoring, fix generation, retest, web UI, PDF report | Planned |
@@ -68,19 +68,59 @@ The lab flag is set inside the child command, after `--`. The default output dir
 
 Not verified while writing this README: first-time setup (installing dependencies, creating the container, filling in `.env`), what the wrapper script requires and does internally, and this command on a fresh checkout. These steps are not a complete setup guide.
 
+## Step 1b: the same check against a local lab app
+**STEP 1 DEVELOPMENT PATH: no gateway, no worker, not the security boundary.** A development spike, not a Slice 1 result or pre-gate pass ([ADR-0014](docs/adr/0014-dev-path-lab-target-allowlist.md)).
+
+`python -m devpath.step1b` runs the five-header presence check (one `HEAD /`) against `127.0.0.1:3000`, meant for a local OWASP Juice Shop, a deliberately vulnerable lab app. Its only option is `--out` (default `.reports/step1b`, git-ignored). It takes no target, host or port, and it pulls and starts nothing. It does not check cookies, server banners or `/ftp`, sends no GET and reads no response body.
+
+**Limits, read first**
+- **Port 3000 cannot identify Juice Shop.** Whatever listens there receives the request, including your own development server. By running the command you attest that it is your local Juice Shop; the engagement statement records that.
+- **Isolation:** lab isolation not verified. The settings below are lab hygiene, not the worker boundary.
+- SEC-6 (structural log scrubbing) and GR-SEC-9 remain open.
+- Only a fake listener bound by the tests has been exercised, not a real Juice Shop.
+
+### Starting the lab app (you run these)
+**All of these commands are unverified: they have not been tried.** Replace `<tag>` and `<digest>`: choose the release tag, take the digest from the inspect output, and check the image's licence yourself. First check that the container name `vulnscope-juice` and the network name `vulnscope-lab` are unused.
+
+```bash
+docker pull bkimminich/juice-shop:<tag>
+docker image inspect --format '{{index .RepoDigests 0}}' bkimminich/juice-shop:<tag>
+docker network create --driver bridge --opt com.docker.network.bridge.enable_ip_masquerade=false vulnscope-lab
+docker run -d --rm --name vulnscope-juice --network vulnscope-lab -p 127.0.0.1:3000:3000 --cap-drop ALL --security-opt no-new-privileges --memory 1g --pids-limit 256 bkimminich/juice-shop@sha256:<digest>
+docker port vulnscope-juice
+```
+
+`docker port` must print only `3000/tcp -> 127.0.0.1:3000`. If it prints anything else, stop the container. **Never publish on `0.0.0.0`.** Disabling IP masquerade is meant to block outbound NAT. Its effect on Docker Desktop and WSL2 and on port publishing is unverified, as are the hardening options with this image. It is not proof of isolation. If WSL cannot reach `127.0.0.1:3000`, stop; do not publish more widely.
+
+When finished:
+
+```bash
+docker stop vulnscope-juice && docker network rm vulnscope-lab
+```
+
+### Running the check
+With the same prerequisites as the Step 1 demo:
+
+```bash
+PYTHONPATH=src:. python scripts/with_task_db.py --mode task --task s --lock-wait 120 -- \
+  env VULNSCOPE_ENABLE_LAB=1 python -m devpath.step1b --out .reports/step1b
+```
+
+This command has not been run against a real lab app. It exits 0 when the check completes (`issue` or `no_issue`) and the ledger and report checks are ok; 1 for anything else, such as nothing listening (`connection_error`, no finding) or a redirect; 2 on a usage error or configuration refusal.
+
 ## What this does not prove (development spike)
-**Step 1 is a development spike. It is NOT the security boundary, NOT a Slice 1 result and NOT a Slice 1 pre-gate pass.** That pre-gate has been neither run nor passed, its blockers remain open, and the preceding Slice 0 is not closed by this work. `devpath/` is to be deleted when Step 2 lands (ADR-0013). It is a temporary exception to the target design: it opens a socket without a gateway, only to its own stub.
+**Step 1 is a development spike. It is NOT the security boundary, NOT a Slice 1 result and NOT a Slice 1 pre-gate pass.** That pre-gate has been neither run nor passed, its blockers remain open, and the preceding Slice 0 is not closed by this work. `devpath/` is to be deleted when Step 2 lands (ADR-0013). It is a temporary exception to the target design: it opens a socket without a gateway, only to `127.0.0.1`, to its own stub or (ADR-0014) port 3000. The points below were written for the Step 1 demo; they apply to Step 1b too, except where they say only the stub is contacted.
 
 **Enforcement and isolation**
 - There is no gateway, worker, queue, job token, process isolation or network isolation.
 - Enforcement is in-process code. A code bug or other in-process code can bypass it: by patching the sender or its helpers, calling the private send function, opening its own socket, putting a different `127.0.0.1` listener (including a swapped, duplicated or inherited one) into a real stub object, or injecting a fake ledger or engagement view, which would satisfy the "recorded decision" requirement without a real record (requests still go only to the stub).
-- The policy engine does not restrict ports. The lab profile would allow any loopback service, including the database; the sender pins `127.0.0.1` and the stub's own port.
+- The policy engine does not restrict ports. The lab profile would allow any loopback service, including the database; the sender pins `127.0.0.1` and either the stub's own port or the constant 3000.
 
 **What is checked**
 - Five headers, one HEAD per check: `content-security-policy`, `x-frame-options`, `x-content-type-options`, `referrer-policy`, `permissions-policy`.
 - Literal `present` or `absent` only. Weak, empty or wrong values count as `present`. CSP `frame-ancestors` does not count as `X-Frame-Options`. The check can miss weaknesses and can report an issue where an equivalent control exists.
 - Redirects are not followed.
-- Only the demo's own local stub is contacted. DNS, TLS, real labs and real targets are not exercised.
+- `devpath.step1` contacts only its own local stub; `devpath.step1b` contacts only `127.0.0.1:3000`. DNS, TLS and real targets are not exercised, and no real lab app has been exercised by tests.
 - Findings are unscored (ADR-0012): no CVSS score, and severity is not assessed.
 
 **Evidence, ledger and operations**
