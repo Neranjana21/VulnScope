@@ -1,18 +1,34 @@
 """Finding/Evidence view schemas, mirroring docs/io-contracts.md "Finding"
 and "Evidence record" exactly."""
+
 from __future__ import annotations
 
-from pydantic import Field
+from typing import Self
+
+from pydantic import Field, model_validator
 
 from vulnscope.models.schemas.common import SchemaVersion1, StrictModel, UtcDateTime
+
+# ADR-0012: the unscored placeholder. A made-up 0.0 is never used for "not scored".
+UNSCORED = "unscored"
+UNSCORED_UNKNOWN_INPUTS = ("cvss", "kev", "epss", "asset_criticality", "exposure")
 
 
 class CvssInfo(StrictModel):
     version: str
     vector: str
-    score: float
+    score: float | None
     source: str
     snapshot: str
+
+    @model_validator(mode="after")
+    def _unscored_is_exact(self) -> Self:
+        if (self.score is None) != (self.version == UNSCORED):
+            raise ValueError("score is null if and only if version is 'unscored'")
+        placeholder = ("", "none", "none")
+        if self.version == UNSCORED and (self.vector, self.source, self.snapshot) != placeholder:
+            raise ValueError("unscored cvss requires empty vector and source/snapshot 'none'")
+        return self
 
 
 class Priority(StrictModel):
@@ -45,6 +61,20 @@ class FindingView(StrictModel):
     source_adapter: SourceAdapter
     first_seen: UtcDateTime
     last_seen: UtcDateTime
+
+    @model_validator(mode="after")
+    def _unscored_is_consistent(self) -> Self:
+        unscored = self.cvss.version == UNSCORED
+        if (self.priority.band == UNSCORED) != unscored:
+            raise ValueError("priority band 'unscored' goes with unscored cvss only")
+        if unscored and (
+            self.priority.reasons
+            or self.priority.policy_version != "none"
+            or tuple(self.priority.unknown_inputs) != UNSCORED_UNKNOWN_INPUTS
+            or self.severity is not None
+        ):
+            raise ValueError("unscored findings require the ADR-0012 placeholder values")
+        return self
 
 
 class EvidenceView(StrictModel):
