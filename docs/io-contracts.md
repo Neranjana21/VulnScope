@@ -73,7 +73,8 @@ class Adapter(Protocol):
 Adapters never open sockets directly; `run` goes through the gateway client (S1). Output is size-capped, time-capped and treated as hostile. A missing external tool yields `tool_unavailable`, not a crash.
 
 ## Finding
-`id, schema_version, org_id, engagement_id, asset_id, title, cwe, taxonomy[] , owasp_api (nullable), status, severity (derived from CVSS band), evidence_ids[], cvss{version, vector, score, source, snapshot}, priority{band, reasons[], policy_version, unknown_inputs[]}, source_adapter{name, version}, first_seen, last_seen`
+`id, schema_version, org_id, engagement_id, asset_id, title, cwe, taxonomy[] , owasp_api (nullable), status, severity (derived from CVSS band; null when unscored), evidence_ids[], cvss{version, vector, score (number | null), source, snapshot}, priority{band, reasons[], policy_version, unknown_inputs[]}, source_adapter{name, version}, first_seen, last_seen`
+**Unscored placeholder (ADR-0012):** `cvss.score` is null if and only if `cvss.version` is `"unscored"`; a fake `0.0` is never used. An unscored finding has exactly `cvss{version: "unscored", score: null, vector: "", source: "none", snapshot: "none"}`, `priority{band: "unscored", reasons: [], policy_version: "none", unknown_inputs: ["cvss", "kev", "epss", "asset_criticality", "exposure"]}` and `severity: null`.
 **Status transitions (all others are "backward" and need a reviewer role plus a recorded reason):**
 `candidate -> likely | confirmed | false_positive | inconclusive | blocked_by_policy`; `likely -> confirmed | false_positive | inconclusive`; `inconclusive -> likely | confirmed | false_positive`; `confirmed -> remediated` (only by a passing retest); `remediated -> confirmed` (regression); `blocked_by_policy -> candidate` (only after a scope change); `false_positive -> candidate` (reopen, with reason). Every transition is a ledger entry.
 
