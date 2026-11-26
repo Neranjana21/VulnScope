@@ -16,6 +16,7 @@ from collections.abc import Iterable, Sequence
 
 from vulnscope.models.schemas.finding import EvidenceView, FindingView
 from vulnscope.report.model import ReportModel
+from vulnscope.validate.types import HEADER_NAMES, HeaderName
 
 LABEL = "STEP 1 DEVELOPMENT PATH: no gateway, no worker, not the security boundary"
 MAX_REPORT_BYTES = 512 * 1024
@@ -30,6 +31,54 @@ _CHECK_WORDS = {"ok": "ok", "mismatch": "MISMATCH", "incomplete": "check incompl
 _TOO_BIG = "report exceeds the size cap"
 _UNSAFE_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
 _NOT_IMPLEMENTED = "Not implemented in Step 1."
+
+# Constants of this module, never target data.
+_NOT_VERIFIED = "remediation not shown: evidence could not be verified"
+_NONE_ABSENT = "The verified evidence marks no header as absent."
+_PRESENCE_ONLY = (
+    "This check is presence-only. Adding a header changes its result but does not show that "
+    "the value is safe or that the site is secure."
+)
+_REMEDIATION: dict[HeaderName, str] = {
+    "content-security-policy": (
+        "Send a Content-Security-Policy header that allows only the sources the application "
+        "needs. A Content-Security-Policy-Report-Only header helps with testing a policy, but "
+        "it does not enforce it and this check does not count it."
+    ),
+    "x-frame-options": (
+        "Send X-Frame-Options with DENY, or SAMEORIGIN if the application frames its own "
+        "pages. A CSP frame-ancestors rule is also worth setting, but a CSP frame-ancestors "
+        "rule does not count as X-Frame-Options for this check."
+    ),
+    "x-content-type-options": (
+        "Send X-Content-Type-Options with nosniff, and check that every response declares the "
+        "correct Content-Type."
+    ),
+    "referrer-policy": (
+        "Send a Referrer-Policy that limits what is shared with other sites, for example "
+        "strict-origin-when-cross-origin, or no-referrer if no referrer is needed."
+    ),
+    "permissions-policy": (
+        "Send a Permissions-Policy that turns off browser features the application does not "
+        "use, for example camera, microphone and geolocation. Browser support varies."
+    ),
+}
+_SNIPPETS: dict[HeaderName, str] = {
+    "content-security-policy": (
+        "Content-Security-Policy: default-src 'self'; object-src 'none'; base-uri 'self'; "
+        "frame-ancestors 'none'"
+    ),
+    "x-frame-options": "X-Frame-Options: DENY",
+    "x-content-type-options": "X-Content-Type-Options: nosniff",
+    "referrer-policy": "Referrer-Policy: strict-origin-when-cross-origin",
+    "permissions-policy": "Permissions-Policy: camera=(), microphone=(), geolocation=()",
+}
+_SNIPPET_CAUTION = (
+    "These are static, generic starting points, not generated from the target. They can break "
+    "an application, so adapt and test them before deploying. The check is presence-only: a "
+    "snippet does not make a site secure. The frame-ancestors rule in the first snippet does "
+    "not count as X-Frame-Options for this check."
+)
 
 LIMITS: tuple[str, ...] = (
     "Development path only; not the security boundary and not a Slice 1 result.",
@@ -115,18 +164,94 @@ def _table(rows: Iterable[tuple[str, object]]) -> _Markup:
     return _el("table", *[_el("tr", _el("th", key), _el("td", value)) for key, value in rows])
 
 
-def _evidence_block(item: EvidenceView, checks_ok: bool) -> list[_Markup]:
-    digest = hashlib.sha256(item.redacted_excerpt.encode("utf-8", "surrogatepass")).hexdigest()
-    agrees = checks_ok and digest == item.content_sha256
+def _digest(item: EvidenceView) -> str:
+    return hashlib.sha256(item.redacted_excerpt.encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def _agrees(model: ReportModel, item: EvidenceView) -> bool:
+    """The runner's check and the hash recomputed here must both agree."""
+    return model.evidence_checks.get(item.id) is True and _digest(item) == item.content_sha256
+
+
+def _parse_absent(excerpt: str) -> tuple[HeaderName, ...] | None:
+    """Exactly one ``name: absent|present`` line per allowlisted name, in order, else None.
+
+    The names returned are this code's constants; no excerpt text is passed on.
+    """
+    lines = excerpt.split("\n")
+    if len(lines) != len(HEADER_NAMES):
+        return None
+    absent: list[HeaderName] = []
+    for name, line in zip(HEADER_NAMES, lines, strict=True):
+        if line == name + ": absent":
+            absent.append(name)
+        elif line != name + ": present":
+            return None
+    return tuple(absent)
+
+
+def _verified_absent(model: ReportModel, finding: FindingView) -> tuple[HeaderName, ...] | None:
+    """None unless every part of this finding's evidence can be relied on (fail closed).
+
+    Any report-level problem suppresses every finding: a problem may name a ledger payload
+    id, so it cannot safely be pinned to one finding.
+    """
+    if model.integrity.status != "ok":
+        return None
+    linked = [item for item in model.evidence if item.finding_id == finding.id]
+    if sorted(item.id for item in linked) != sorted(finding.evidence_ids):
+        return None
+    if not all(_agrees(model, item) for item in linked):
+        return None
+    parsed = {_parse_absent(item.redacted_excerpt) for item in linked}
+    return parsed.pop() if len(parsed) == 1 else None
+
+
+def _remediation_block(model: ReportModel, finding: FindingView) -> list[_Markup]:
+    parts = [_el("p", _el("strong", "Remediation"))]
+    absent = _verified_absent(model, finding)
+    if absent is None:
+        return [*parts, _el("p", _NOT_VERIFIED)]
+    if not absent:
+        return [*parts, _el("p", _NONE_ABSENT)]
+    parts.append(_el("p", _PRESENCE_ONLY))
+    for name in absent:
+        parts += [
+            _el("p", _el("strong", "Absent header: ", name)),
+            _el("p", _REMEDIATION[name]),
+            _el(
+                "p",
+                "How to reproduce: HEAD / was sent to the demo's own local stub on 127.0.0.1; ",
+                f"the response had no {name} header. The stub is temporary, so to reproduce "
+                "this, run the demo again.",
+            ),
+        ]
+    return parts
+
+
+def _snippets_section() -> list[_Markup]:
+    parts = [_el("h3", "Fix snippets"), _el("p", _SNIPPET_CAUTION)]
+    for name in HEADER_NAMES:
+        parts += [_el("p", _el("strong", name)), _el("pre", _SNIPPETS[name])]
+    parts.append(_el("p", "Retest: ", _NOT_IMPLEMENTED))
+    return parts
+
+
+def _evidence_block(model: ReportModel, item: EvidenceView) -> list[_Markup]:
     return [
-        _el("p", _el("strong", "Evidence cross-check: ", "match" if agrees else "MISMATCH")),
+        _el(
+            "p",
+            _el(
+                "strong", "Evidence cross-check: ", "match" if _agrees(model, item) else "MISMATCH"
+            ),
+        ),
         _table(
             [
                 ("Evidence id", item.id),
                 ("Finding id", item.finding_id),
                 ("Kind", item.kind),
                 ("Stored content SHA-256", item.content_sha256),
-                ("Recomputed excerpt SHA-256", digest),
+                ("Recomputed excerpt SHA-256", _digest(item)),
                 ("Identity label", _or_unstated(item.identity_label)),
                 ("Expected", _or_unstated(item.expected)),
                 ("Observed", _or_unstated(item.observed)),
@@ -214,13 +339,14 @@ def _findings_section(model: ReportModel) -> list[_Markup]:
         parts += _finding_block(finding)
         for item in evidence:
             if item.finding_id == finding.id:
-                parts += _evidence_block(item, model.evidence_checks.get(item.id) is True)
+                parts += _evidence_block(model, item)
+        parts += _remediation_block(model, finding)
     listed = {finding.id for finding in findings}
     orphans = [item for item in evidence if item.finding_id not in listed]
     if orphans:
         parts.append(_el("h3", "Evidence not linked to a listed finding"))
         for item in orphans:
-            parts += _evidence_block(item, model.evidence_checks.get(item.id) is True)
+            parts += _evidence_block(model, item)
     return parts
 
 
@@ -313,7 +439,7 @@ def render_report(model: ReportModel) -> str:
             "5 Attack paths and the recommended fix set (method stated)",
             [_el("p", _NOT_IMPLEMENTED, " No paths, fix set or method.")],
         ),
-        ("6 Fix snippets and retest results", [_el("p", _NOT_IMPLEMENTED)]),
+        ("6 Fix snippets and retest results", _snippets_section()),
         ("7 Ledger verification result, checkpoint status and limitations", _ledger_section(model)),
     ]
     head = _el(
