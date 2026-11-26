@@ -18,10 +18,10 @@ import asyncio
 import socket
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Protocol
 
 import h11
 
+from devpath.stub import NotTheRealStub, RunningStub, bound_port
 from vulnscope.ledger.chain import ChainBackend
 from vulnscope.policy.clock import Clock
 from vulnscope.policy.decide_and_record import decide_and_record
@@ -36,15 +36,6 @@ ADAPTER_PREFIX = "devpath.security_headers@1|job="
 TOTAL_TIMEOUT_S = 5.0  # connect, send and receive together
 MAX_HEADER_BYTES = 16 * 1024
 _KEPT_NAMES = frozenset(name.encode("ascii") for name in HEADER_NAMES)
-
-
-class StubHandle(Protocol):
-    """Our running in-process stub. There is deliberately no URL, host or port argument."""
-
-    @property
-    def port(self) -> int:
-        """Bound port of the RUNNING stub; raises ``RuntimeError``/``OSError`` otherwise."""
-        ...
 
 
 @dataclass(frozen=True)
@@ -88,9 +79,11 @@ class _RefusingResolver:
         raise ResolutionError("Step 1 performs no DNS")
 
 
-def _stub_port(stub: StubHandle, decision: PolicyDecision | None) -> int:
+def _stub_port(stub: RunningStub, decision: PolicyDecision | None) -> int:
     try:
-        return stub.port
+        return bound_port(stub)
+    except NotTheRealStub:
+        raise SendRefused("not_the_real_stub", decision) from None
     except (OSError, RuntimeError):
         raise SendRefused("stub_not_running", decision) from None
 
@@ -172,12 +165,13 @@ async def _send(ip: str, port: int, decision: PolicyDecision) -> HeaderResponse:
 
 async def guarded_head(
     *,
-    stub: StubHandle,
+    stub: RunningStub,
     fresh_view: Callable[[], Awaitable[EngagementPolicyView]],
     deps: TransportDeps,
     run_id: str,
 ) -> tuple[PolicyDecision, HeaderResponse | None]:
-    """Decide, record, then HEAD our stub.
+    """Decide, record, then HEAD our stub. There is no URL, host or port argument, and
+    only an exact ``devpath.stub.RunningStub`` is accepted.
 
     A deny returns ``(decision, None)`` with nothing sent. Any error from the view or the
     ledger propagates before a socket exists. ``SendRefused``: an allow failed the pin.

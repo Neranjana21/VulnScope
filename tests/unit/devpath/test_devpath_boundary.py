@@ -116,13 +116,10 @@ def test_devpath_never_imports_decide_or_an_http_client() -> None:
         assert "vulnscope.policy.resolver.SystemResolver" not in imports, path.name
 
 
-def test_transport_is_the_only_devpath_module_using_socket_or_h11() -> None:
-    users = {
-        path.name
-        for path in _files(DEVPATH)
-        if _hits(_imports(path.read_text(encoding="utf-8")), "socket", "h11")
-    }
-    assert users == {"transport.py"}
+def test_only_transport_and_stub_use_socket_and_only_transport_uses_h11() -> None:
+    imports = {p.name: _imports(p.read_text(encoding="utf-8")) for p in _files(DEVPATH)}
+    assert {n for n, i in imports.items() if _hits(i, "socket")} == {"stub.py", "transport.py"}
+    assert {n for n, i in imports.items() if _hits(i, "h11")} == {"transport.py"}
 
 
 def test_src_gains_no_socket_or_h11_user() -> None:

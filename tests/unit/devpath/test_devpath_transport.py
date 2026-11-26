@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 from devpath import LABEL, transport
-from tests.support.step1_stub import RunningStub
+from devpath.stub import RunningStub
 
 from vulnscope.policy.clock import SystemClock
 from vulnscope.policy.denylist import compute_policy_version
@@ -292,18 +292,12 @@ def test_pin_refuses_everything_else(decision: PolicyDecision, code: str) -> Non
 
 
 async def test_port_must_still_be_the_running_stubs_after_the_decision(
-    connects: list[Any],
+    stub: RunningStub, connects: list[Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    class MovingStub:
-        def __init__(self) -> None:
-            self.reads = iter([40001, 40002])
-
-        @property
-        def port(self) -> int:
-            return next(self.reads)
-
+    reads = iter([40001, 40002])
+    monkeypatch.setattr(transport, "bound_port", lambda _stub: next(reads))
     with pytest.raises(transport.SendRefused) as caught:
-        await Harness().head(MovingStub())
+        await Harness().head(stub)
     assert caught.value.code == "port_not_pinned"
     assert connects == []
 

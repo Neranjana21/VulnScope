@@ -1,6 +1,7 @@
-"""Our own throwaway HTTP stub for Step 1. Binds 127.0.0.1 on a random port, nothing else.
+"""STEP 1 DEVELOPMENT PATH: no gateway, no worker, not the security boundary.
 
-It is the ONLY thing the Step 1 development path may talk to (ADR-0013).
+Our own throwaway HTTP stub. Binds 127.0.0.1 on a random port, nothing else. It is the
+ONLY thing the Step 1 development path may talk to (ADR-0013).
 """
 
 from __future__ import annotations
@@ -28,6 +29,36 @@ _RESPONSES: dict[str, bytes] = {
 }
 
 
+class NotTheRealStub(Exception):
+    """The object is not an exact ``RunningStub`` holding a real 127.0.0.1 listener."""
+
+
+def bound_port(stub: object) -> int:
+    """The port the real stub's listening socket is bound to, asked of the socket itself.
+
+    Exact type only (no subclass, no look-alike). No port attribute or property is read.
+    ``RuntimeError``/``OSError``: the real stub is not running.
+
+    This guards against mistakes, not against hostile in-process code, which can patch
+    this function or its caller, or open its own socket (ADR-0013).
+    """
+    if type(stub) is not RunningStub:
+        raise NotTheRealStub
+    sock = getattr(stub, "_sock", None)
+    if type(sock) is not socket.socket:
+        raise NotTheRealStub
+    if stub._stopping:
+        raise RuntimeError("stub is not running")
+    # Unbound calls: instance attributes cannot change the answer.
+    address = socket.socket.getsockname(sock)
+    if sock.family != socket.AF_INET or address[0] != "127.0.0.1":
+        raise NotTheRealStub
+    if socket.socket.getsockopt(sock, socket.SOL_SOCKET, socket.SO_ACCEPTCONN) != 1:
+        raise NotTheRealStub
+    port: int = address[1]
+    return port
+
+
 class RunningStub:
     """``raw_response`` replaces the canned bytes, for hostile-response tests."""
 
@@ -51,10 +82,8 @@ class RunningStub:
 
     @property
     def port(self) -> int:
-        """The bound port of the RUNNING stub; raises once the stub is closed."""
-        if self._stopping:
-            raise RuntimeError("stub is not running")
-        return self._port
+        """Convenience for tests and the demo. The sender does NOT trust this property."""
+        return bound_port(self)
 
     @property
     def request_count(self) -> int:

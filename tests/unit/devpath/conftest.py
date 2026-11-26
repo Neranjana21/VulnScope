@@ -1,4 +1,4 @@
-"""Make the repository root importable: ``devpath`` and ``tests.support`` live outside ``src``."""
+"""Make the repository root importable: ``devpath`` lives outside ``src``."""
 
 from __future__ import annotations
 
