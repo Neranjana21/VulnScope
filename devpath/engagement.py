@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from devpath.targets import JUICE_SHOP, JUICE_SHOP_PORT
 from vulnscope.config import Settings
 from vulnscope.ledger.canonical import sanitize_payload
 from vulnscope.ledger.postgres_backend import PostgresChainBackend
@@ -39,6 +40,10 @@ EXECUTION_PATH = "step1-dev"
 SEED_ORG_ID = "step1-dev-org"
 SEED_APPROVER = "step1-dev-operator"
 SEED_STATEMENT = "Self-attested: the only target is this process's own loopback stub."
+LAB_APP_STATEMENT = (
+    f"Self-attested: the operator attests that 127.0.0.1 port {JUICE_SHOP_PORT} is their "
+    "local Juice Shop lab. The sender cannot verify it."
+)
 _TASK_DB = re.compile(r"vulnscope_task[a-z]_[0-9a-f]{8}", re.ASCII)
 
 
@@ -132,10 +137,10 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _template(now: datetime) -> EngagementCreateRequest:
+def _template(now: datetime, name: str, statement: str) -> EngagementCreateRequest:
     return EngagementCreateRequest(
         schema_version=1,
-        name="step1-dev-loopback-stub",
+        name=name,
         profile="lab",
         targets=Targets(ip_ranges=["127.0.0.1/32"]),
         scope=Scope(
@@ -145,9 +150,7 @@ def _template(now: datetime) -> EngagementCreateRequest:
                 not_before=now - timedelta(minutes=1), not_after=now + timedelta(hours=1)
             ),
         ),
-        authorization=Authorization(
-            confirmed=True, statement=SEED_STATEMENT, approver=SEED_APPROVER
-        ),
+        authorization=Authorization(confirmed=True, statement=statement, approver=SEED_APPROVER),
     )
 
 
@@ -157,11 +160,19 @@ class SeededEngagement:
         self.org_id = org_id
 
 
-async def seed_engagement(*, settings: Settings, engine: AsyncEngine) -> SeededEngagement:
-    """Ledger entry first, then the row: a crash can leave an entry, never a silent row."""
+async def seed_engagement(
+    *, settings: Settings, engine: AsyncEngine, target: object | None = None
+) -> SeededEngagement:
+    """Ledger entry first, then the row: a crash can leave an entry, never a silent row.
+
+    ``target`` only chooses the fixed name and statement (the lab app ones for the object
+    ``JUICE_SHOP``). The scope is the same, and it never changes where anything is sent."""
     check_config(settings, engine)
     now = SystemClock().now()
-    request = _template(now)
+    if target is JUICE_SHOP:
+        request = _template(now, "step1-dev-loopback-lab-app", LAB_APP_STATEMENT)
+    else:
+        request = _template(now, "step1-dev-loopback-stub", SEED_STATEMENT)
     issues = validate_engagement_targets(
         domains=request.targets.domains,
         ip_ranges=request.targets.ip_ranges,
@@ -184,7 +195,7 @@ async def seed_engagement(*, settings: Settings, engine: AsyncEngine) -> SeededE
             "authorization_basis": {
                 "confirmed": True,
                 "approver_sha256": _sha256(SEED_APPROVER),
-                "statement_sha256": _sha256(SEED_STATEMENT),
+                "statement_sha256": _sha256(request.authorization.statement),
             },
             "scope_sha256": _sha256(json.dumps(scope, sort_keys=True)),
             "window_not_before": request.scope.window.not_before.isoformat(),

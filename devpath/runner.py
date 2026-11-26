@@ -1,6 +1,7 @@
 """STEP 1 DEVELOPMENT PATH: no gateway, no worker, not the security boundary.
 
-One header check against our own stub (ADR-0013).
+One header check against our own stub (ADR-0013) or the sealed lab app target
+(ADR-0014). Both targets take exactly the same path.
 
 Rule 4: the engagement is re-read immediately before the decision, and its status and
 window again immediately before the socket (``guarded_head``); a
@@ -33,6 +34,7 @@ from devpath.engagement import (
     load_engagement,
 )
 from devpath.stub import RunningStub
+from devpath.targets import LabTarget
 from devpath.transport import (
     ADAPTER_PREFIX,
     RECHECK_CODES,
@@ -70,6 +72,7 @@ from vulnscope.report.model import (
     IntegrityProblem,
     ReportModel,
     ReportOutcome,
+    TargetKind,
 )
 from vulnscope.validate.evidence import build_evidence
 from vulnscope.validate.security_headers import evaluate
@@ -103,7 +106,7 @@ async def _watch(sending: asyncio.Event, still_permitted: Callable[[], Awaitable
 
 async def _send_watched(
     *,
-    stub: RunningStub,
+    stub: RunningStub | LabTarget,
     fresh_view: Callable[[], Awaitable[EngagementPolicyView]],
     deps: TransportDeps,
     run_id: str,
@@ -150,7 +153,12 @@ def _decision_seqs(entries: list[LedgerEntry], run_id: str) -> tuple[int, ...]:
 
 
 async def run_check(
-    *, settings: Settings, engine: AsyncEngine, engagement_id: str, org_id: str, stub: RunningStub
+    *,
+    settings: Settings,
+    engine: AsyncEngine,
+    engagement_id: str,
+    org_id: str,
+    stub: RunningStub | LabTarget,
 ) -> RunOutcome:
     check_config(settings, engine)
     backend = PostgresChainBackend(engine)
@@ -440,6 +448,7 @@ async def collect_report(
     engagement_id: str,
     org_id: str,
     outcome: ReportOutcome,
+    target_kind: TargetKind,
 ) -> ReportModel:
     check_config(settings, engine)
     backend = PostgresChainBackend(engine)
@@ -503,6 +512,7 @@ async def collect_report(
         evidence_checks=checks,
         integrity=IntegrityCheck(gaps, _reconcile(entries, findings, evidence, checks)),
         outcome=outcome,
+        target_kind=target_kind,  # in memory only: it chooses the report wording
         verify=VerifyResponse(
             result=checked.result,
             first_bad_seq=checked.first_bad_seq,

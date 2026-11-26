@@ -58,6 +58,7 @@ async def test_no_target_text_reaches_evidence_ledger_logs_or_output(
             evidence_checks={},
             outcome=result.outcome,
             integrity=IntegrityCheck((), ()),
+            target_kind="own_stub",
             verify=VerifyResponse(result="ok", first_bad_seq=None, records=1, checkpoint_seq=None),
         )
     )

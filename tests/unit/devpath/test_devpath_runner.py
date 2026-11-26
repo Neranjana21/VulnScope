@@ -70,7 +70,9 @@ async def test_every_entry_point_refuses_before_database_or_stub_use(
             lambda: engagement.seed_engagement(settings=bad, engine=engine),
             lambda: engagement.revoke_engagement(settings=bad, engine=engine, **ids),
             lambda: runner.run_check(settings=bad, engine=engine, stub=stub, **ids),
-            lambda: runner.collect_report(settings=bad, engine=engine, outcome="issue", **ids),
+            lambda: runner.collect_report(
+                settings=bad, engine=engine, outcome="issue", target_kind="own_stub", **ids
+            ),
         ]
         for call in calls:
             with pytest.raises(engagement.ConfigRefused) as caught:

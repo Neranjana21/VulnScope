@@ -88,7 +88,7 @@ async def _demo(out: Path) -> int:
             second = await run_check(stub=stub, **ids)
             second_requests = stub.request_count
 
-        model = await collect_report(outcome=first.outcome, **ids)
+        model = await collect_report(outcome=first.outcome, target_kind="own_stub", **ids)
 
         status = next((f.status for f in model.findings if f.id == first.finding_id), "none")
         _say(
