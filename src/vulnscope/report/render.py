@@ -53,7 +53,9 @@ LIMITS: tuple[str, ...] = (
     "Engagement status and window are read again from the database just before the request. A "
     "revoke or window expiry that happens after that re-read and before the request bytes are on "
     "the wire is not prevented: the in-flight watcher may cancel too late. A request refused by "
-    "the re-read leaves an allow decision in the ledger with nothing sent.",
+    "the re-read leaves an allow decision in the ledger with nothing sent. No separate entry "
+    "records the refusal. This is accepted for the development spike only (backlog "
+    "BL-S1-F9: record the abort when Step 2 lands).",
     "The report-level check compares ledger entries and result rows in both directions for this "
     "engagement. Compared with the ledger: evidence content hash, ids, policy version, adapter "
     "and finding status. Compared with fixed constants in this code, because the ledger does not "
