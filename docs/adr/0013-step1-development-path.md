@@ -25,6 +25,12 @@ Slice 1 needs workers, a broker, job tokens and an egress gateway (ADR-0002), be
 - DNS, TLS, redirect following, real labs and real targets are not exercised.
 - SEC-6 (structural log scrubbing) and GR-SEC-9 (monotonic `chain_heads` trigger and DELETE-grant review) remain open.
 
+## Accepted limits (round 26)
+These three are accepted by the owner and are printed in the report under "Limits of this assessment":
+- Headers are reported as `present` or `absent` only; a CSP `frame-ancestors` rule does not count as `X-Frame-Options`.
+- No redirect is followed.
+- That `devpath/` is excluded from the built package is proven from the build configuration only; no wheel was built.
+
 ## Alternatives rejected
 - Waiting for the Slice 1 gateway and worker: no end-to-end feedback for a long time.
 - Using `httpx` or a URL-taking sender: environment proxies, DNS and arbitrary targets would be one mistake away.

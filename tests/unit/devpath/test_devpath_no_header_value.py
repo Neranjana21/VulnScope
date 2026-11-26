@@ -1,13 +1,17 @@
-"""The tiny no-value test: stub bytes never reach evidence, ledger payload, logs or errors."""
+"""The tiny no-value test: no stub text in evidence, ledger payload, report or logs."""
 
 from __future__ import annotations
 
 import logging
 
 import pytest
+from devpath import LABEL
 from devpath.stub import RunningStub
 from test_devpath_transport import Harness
 
+from vulnscope.models.schemas.ledger import VerifyResponse
+from vulnscope.report.model import DecisionFact, EngagementFacts, ReportModel
+from vulnscope.report.render import render_report
 from vulnscope.validate.evidence import build_evidence
 from vulnscope.validate.security_headers import evaluate
 from vulnscope.validate.types import HEADER_NAMES
@@ -37,6 +41,20 @@ async def test_no_target_text_reaches_evidence_ledger_logs_or_output(
     assert response is not None
     result = evaluate(response)
     evidence = build_evidence(result)
+    payload = harness.ledger.entries[0]["payload"]
+    report = render_report(
+        ReportModel(
+            label=LABEL,
+            engagement=EngagementFacts("e", "o", "lab", "active", (), (), "a", "b", "c", "d"),
+            policy_version=decision.policy_version,
+            decisions=(DecisionFact(0, payload["allowed"], payload["rule_id"], payload["reason"]),),
+            findings=(),
+            evidence=(),
+            evidence_checks={},
+            outcome=result.outcome,
+            verify=VerifyResponse(result="ok", first_bad_seq=None, records=1, checkpoint_seq=None),
+        )
+    )
     captured = capsys.readouterr()
     everything = "".join(
         [
@@ -45,6 +63,7 @@ async def test_no_target_text_reaches_evidence_ledger_logs_or_output(
             repr(response.headers),
             repr(result),
             evidence.excerpt,
+            report,
             repr(harness.ledger.entries),
             caplog.text,
             captured.out,
