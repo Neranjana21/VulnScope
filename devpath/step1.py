@@ -61,6 +61,12 @@ def _joined(seqs: Sequence[int]) -> str:
     return ",".join(str(seq) for seq in seqs) or "none"
 
 
+def _checks_ok(model: ReportModel) -> bool:
+    """True only if rows were checked, all agree, and the report-level check is ok."""
+    checks = model.evidence_checks
+    return bool(checks) and all(checks.values()) and model.integrity.status == "ok"
+
+
 async def _demo(out: Path) -> int:
     settings = Settings()
     url = require_task_database(settings)  # before any engine, stub or socket
@@ -119,8 +125,9 @@ async def _demo(out: Path) -> int:
         chain = f"engagement:{seeded.engagement_id}"
         async for entry in PostgresChainBackend(engine).read(chain):
             _say(ledger="entry", seq=entry.seq, kind=entry.kind)
-        checks_ok = bool(model.evidence_checks) and all(model.evidence_checks.values())
+        checks_ok = _checks_ok(model)
         _say(evidence_checks_ok=str(checks_ok).lower(), checked=len(model.evidence_checks))
+        _say(report_check=model.integrity.status, report_problems=len(model.integrity.problems))
 
         out.mkdir(parents=True, exist_ok=True)
         (out / REPORT_FILE).write_text(render_report(model), encoding="utf-8")

@@ -30,6 +30,7 @@ def test_demo_prints_fixed_keys_and_writes_the_report(
         "step=redirect outcome=inconclusive observation=redirect_not_followed finding=none",
         "step=verify result=ok",
         "evidence_checks_ok=true",
+        "report_check=ok report_problems=0",
         "kind=engagement.created",
         "report_written=true",
     ):

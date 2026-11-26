@@ -2,14 +2,15 @@
 
 One header check against our own stub (ADR-0013).
 
-Rule 4: the engagement is re-read immediately before the decision (``guarded_head``); a
+Rule 4: the engagement is re-read immediately before the decision, and its status and
+window again immediately before the socket (``guarded_head``); a
 watcher cancels an in-flight send on revoke, and it starts only once the decision is
 recorded, so a decision (including a denial) is never lost to it; before any write the
 engagement row is locked ``FOR UPDATE``, must be active and inside its window, and the
 lock is held through the writes.
 
 Ledger entries and rows are not atomic: a crash can leave an orphan entry, never a
-silent row.
+silent row. The report compares ledger entries and rows in both directions.
 """
 
 from __future__ import annotations
@@ -34,14 +35,16 @@ from devpath.engagement import (
 from devpath.stub import RunningStub
 from devpath.transport import (
     ADAPTER_PREFIX,
+    RECHECK_CODES,
     SendFailed,
+    SendRefused,
     TransportDeps,
     guarded_head,
 )
 from vulnscope.config import Settings
 from vulnscope.ledger.canonical import JsonValue, sanitize_payload
 from vulnscope.ledger.postgres_backend import PostgresChainBackend
-from vulnscope.ledger.types import LedgerEntry
+from vulnscope.ledger.types import LedgerEntry, VerifyResult
 from vulnscope.ledger.verify import verify
 from vulnscope.models.evidence import Evidence
 from vulnscope.models.finding import Finding
@@ -60,12 +63,20 @@ from vulnscope.models.schemas.ledger import VerifyResponse
 from vulnscope.policy.clock import SystemClock
 from vulnscope.policy.ratelimit import InMemoryRateLimitStore
 from vulnscope.policy.types import EngagementPolicyView, PolicyDecision, RuleId
-from vulnscope.report.model import DecisionFact, EngagementFacts, ReportModel, ReportOutcome
+from vulnscope.report.model import (
+    DecisionFact,
+    EngagementFacts,
+    IntegrityCheck,
+    IntegrityProblem,
+    ReportModel,
+    ReportOutcome,
+)
 from vulnscope.validate.evidence import build_evidence
 from vulnscope.validate.security_headers import evaluate
 from vulnscope.validate.types import CheckResult, HeaderResponse
 
 WATCH_INTERVAL_S = 0.25
+MAX_LEDGER_ENTRIES = 1000  # report read bound; more means "check incomplete"
 ADAPTER_NAME = "devpath.security_headers"
 ADAPTER_VERSION = "1"
 TITLE = "Security response headers missing"
@@ -169,6 +180,12 @@ async def run_check(
         seq = failure.decision.ledger_seq
         assert seq is not None  # the sender refuses an unrecorded decision
         return RunOutcome("inconclusive", (seq,), None, failure.code)
+    except SendRefused as refusal:
+        if refusal.code not in RECHECK_CODES:
+            raise
+        assert refusal.decision is not None and refusal.decision.ledger_seq is not None
+        withdrawn: ReportOutcome = "revoked" if refusal.code == "revoked_before_send" else "denied"
+        return RunOutcome(withdrawn, (refusal.decision.ledger_seq,), None, refusal.code)
     if sent is None:
         seqs = _decision_seqs(await _chain(backend, engagement_id), run_id)
         return RunOutcome("revoked", seqs, None, "revoked_in_flight")
@@ -307,7 +324,9 @@ def _evidence_agrees(
     chain_id: str,
     entries: list[LedgerEntry],
 ) -> bool:
-    """Excerpt hash vs row vs ledger entry, and finding status vs its last transition."""
+    """Against the ledger: excerpt hash, ids, policy version, adapter, and finding status
+    vs its last transition. Against this module's constants, because the ledger does not
+    record them: kind, expected, observed and the finding title."""
     by_seq = {entry.seq: entry for entry in entries}
     entry = by_seq.get(row.ledger_seq)
     if finding is None or entry is None or entry.kind != "evidence":
@@ -322,7 +341,9 @@ def _evidence_agrees(
     ]
     digest = hashlib.sha256(row.redacted_excerpt.encode("utf-8", "surrogatepass")).hexdigest()
     return (
-        row.ledger_chain == chain_id
+        (row.kind, row.expected, row.observed, finding.title)
+        == (EVIDENCE_KIND, EXPECTED, OBSERVED, TITLE)
+        and row.ledger_chain == chain_id
         and digest == row.content_sha256 == recorded.get("content_sha256")
         and recorded.get("evidence_id") == row.id
         and recorded.get("finding_id") == row.finding_id == finding.id
@@ -335,6 +356,68 @@ def _evidence_agrees(
         and transitions[-1] == finding.status
         and row.id in finding.evidence_ids
     )
+
+
+def _ledger_id(entry: LedgerEntry, key: str) -> str:
+    value = entry.payload.get(key)
+    return value if isinstance(value, str) else f"unreadable at ledger sequence {entry.seq}"
+
+
+def _reconcile(
+    entries: list[LedgerEntry],
+    findings: list[Finding],
+    evidence: list[Evidence],
+    checks: Mapping[str, bool],
+) -> tuple[IntegrityProblem, ...]:
+    """Both directions: every ledger record needs its row and every row its record."""
+    last_status: dict[str, object] = {}
+    recorded: dict[str, None] = {}  # evidence ids, in ledger order
+    for entry in entries:
+        if entry.kind == "finding.transition":
+            last_status[_ledger_id(entry, "finding_id")] = entry.payload.get("to")
+        elif entry.kind == "evidence":
+            recorded[_ledger_id(entry, "evidence_id")] = None
+    finding_ids = {row.id for row in findings}
+    evidence_ids = {row.id for row in evidence}
+    with_evidence = {row.finding_id for row in evidence}
+    problems = [
+        IntegrityProblem("evidence_row_missing", item)
+        for item in recorded
+        if item not in evidence_ids
+    ]
+    for finding_id, status in last_status.items():
+        if finding_id not in finding_ids:
+            problems.append(IntegrityProblem("finding_row_missing", finding_id))
+        if status == "confirmed" and finding_id not in with_evidence:
+            problems.append(IntegrityProblem("confirmed_without_evidence", finding_id))
+    for finding in findings:
+        if finding.id not in last_status:
+            problems.append(IntegrityProblem("finding_row_unrecorded", finding.id))
+        elif (finding.title, finding.status) != (TITLE, last_status[finding.id]):
+            problems.append(IntegrityProblem("finding_row_differs", finding.id))
+    for row in evidence:
+        if row.id not in recorded:
+            problems.append(IntegrityProblem("evidence_row_unrecorded", row.id))
+        elif checks.get(row.id) is not True:
+            problems.append(IntegrityProblem("evidence_row_differs", row.id))
+    return tuple(problems)
+
+
+async def _read_for_check(
+    backend: PostgresChainBackend, chain_id: str, checked: VerifyResult
+) -> tuple[list[LedgerEntry], tuple[str, ...]]:
+    """A bounded read, with the reason (if any) why it cannot support an "ok"."""
+    entries = [e async for e in backend.read(chain_id, 0, MAX_LEDGER_ENTRIES + 1)]
+    reason: str | None = None
+    if checked.result != "ok":
+        reason = "ledger_not_verified"
+    elif len(entries) > MAX_LEDGER_ENTRIES:
+        reason = "ledger_read_bounded"
+    elif not entries:
+        reason = "ledger_empty"
+    elif not len(entries) == checked.records == await backend.record_count(chain_id):
+        reason = "ledger_read_short"
+    return entries[:MAX_LEDGER_ENTRIES], () if reason is None else (reason,)
 
 
 def _finding_view(row: Finding) -> FindingView:
@@ -362,7 +445,7 @@ async def collect_report(
     backend = PostgresChainBackend(engine)
     chain_id = f"engagement:{engagement_id}"
     checked = await verify(chain_id, backend)
-    entries = await _chain(backend, engagement_id)
+    entries, gaps = await _read_for_check(backend, chain_id, checked)
     async with AsyncSession(engine) as session:
         engagement = await load_engagement(session, engagement_id, org_id)
         view = build_view(engagement, settings)
@@ -385,6 +468,10 @@ async def collect_report(
             ).scalars()
         )
     by_id = {row.id: row for row in findings}
+    checks = {
+        row.id: _evidence_agrees(row, by_id.get(row.finding_id), chain_id, entries)
+        for row in evidence
+    }
     assert view.authorization_basis is not None
     return ReportModel(
         label=LABEL,
@@ -413,10 +500,8 @@ async def collect_report(
         ),
         findings=tuple(_finding_view(row) for row in findings),
         evidence=tuple(_evidence_view(row) for row in evidence),
-        evidence_checks={
-            row.id: _evidence_agrees(row, by_id.get(row.finding_id), chain_id, entries)
-            for row in evidence
-        },
+        evidence_checks=checks,
+        integrity=IntegrityCheck(gaps, _reconcile(entries, findings, evidence, checks)),
         outcome=outcome,
         verify=VerifyResponse(
             result=checked.result,

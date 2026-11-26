@@ -40,6 +40,13 @@ ALLOWED_TAGS = {
 }  # fmt: skip
 
 
+def _integrity(t: str = "", reasons: tuple[str, ...] = (), codes: tuple[str, ...] = ()) -> Any:
+    """Imported on use so each test fails on its own while the model type is missing."""
+    from vulnscope.report import model
+
+    return model.IntegrityCheck(reasons, tuple(model.IntegrityProblem(c, "id" + t) for c in codes))
+
+
 def make_model(t: str = "text", **changes: Any) -> ReportModel:
     """Every free-text field carries ``t``."""
     finding = FindingView(
@@ -92,6 +99,7 @@ def make_model(t: str = "text", **changes: Any) -> ReportModel:
         "evidence_checks": {"ev1" + t: True},
         "outcome": "issue",
         "verify": VerifyResponse(result="ok", first_bad_seq=None, records=4, checkpoint_seq=None),
+        "integrity": _integrity(t),
     }
     values.update(changes)
     return ReportModel(**values)
@@ -306,3 +314,62 @@ def test_total_size_cap_fails_closed() -> None:
     decision = DecisionFact(0, True, "&" * 4096, "&" * 4096)
     with pytest.raises(ValueError, match="size cap"):
         render_report(make_model(decisions=(decision,) * 100))
+
+
+CHECK_LINE = "Report-level ledger and row check: "
+
+
+def _before_limits(document: str) -> str:
+    return _text(document).split("Limits of this assessment")[0]
+
+
+def test_clean_report_states_the_report_level_check_is_ok() -> None:
+    text = _before_limits(render_report(make_model()))
+    assert CHECK_LINE in text
+    assert "MISMATCH" not in text and "check incomplete" not in text
+
+
+def test_report_level_mismatch_shows_with_zero_rows() -> None:
+    model = make_model(
+        findings=(),
+        evidence=(),
+        evidence_checks={},
+        integrity=_integrity(HOSTILE, codes=("finding_row_missing", "evidence_row_missing")),
+    )
+    document = render_report(model)
+    assert {tag.lstrip("/") for tag in Shape(document).tags} <= ALLOWED_TAGS
+    text = _text(document)
+    assert "No findings." in text
+    assert text.count("MISMATCH") >= 2  # the summary and the findings section
+    assert "finding_row_missing" in text and "evidence_row_missing" in text
+    assert "id" + HOSTILE in text
+    assert text.index("MISMATCH") < text.index(HEADINGS[1])
+
+
+@pytest.mark.parametrize("codes", [(), ("evidence_row_missing",)])
+def test_incomplete_check_is_never_shown_as_ok(codes: tuple[str, ...]) -> None:
+    model = make_model(integrity=_integrity(reasons=("ledger_read_bounded",), codes=codes))
+    text = _before_limits(render_report(model))
+    assert "check incomplete" in text and "ledger_read_bounded" in text
+    assert model.integrity.status == "incomplete"
+
+
+def test_too_many_problems_fail_closed() -> None:
+    model = make_model(integrity=_integrity(codes=("evidence_row_missing",) * 501))
+    with pytest.raises(ValueError):
+        render_report(model)
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "after that re-read",
+        "an allow decision in the ledger with nothing sent",
+        "both directions",
+        "because the ledger does not record them",
+        "are not compared",
+        "delete finding and evidence rows",
+    ],
+)
+def test_the_new_limits_are_stated(phrase: str) -> None:
+    assert phrase in _text(render_report(make_model()))

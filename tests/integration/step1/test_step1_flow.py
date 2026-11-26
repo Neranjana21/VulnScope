@@ -7,6 +7,7 @@ import hashlib
 import importlib
 import logging
 import sys
+import uuid
 from collections.abc import Iterator
 from typing import Any
 
@@ -129,6 +130,7 @@ async def test_issue_writes_rows_and_ledger_in_order(case: Case, stub: RunningSt
     model = await case.report()
     assert model.verify.result == "ok" and model.verify.records == 5
     assert model.evidence_checks == {evidence.id: True}
+    assert (model.integrity.status, model.integrity.problems) == ("ok", ())
     document = render_report(model)
     assert "Evidence cross-check: " in document and "MISMATCH" not in document
     assert LABEL in document
@@ -140,6 +142,7 @@ async def test_secure_stub_writes_no_finding(case: Case) -> None:
     assert (result.outcome, result.finding_id) == ("no_issue", None)
     await case.assert_no_finding()
     assert await case.kinds() == ["engagement.created", "policy.decision"]
+    assert (await case.report("no_issue")).integrity.status == "ok"
 
 
 async def test_redirect_is_inconclusive_and_nothing_is_followed(case: Case) -> None:
@@ -198,10 +201,39 @@ async def test_watcher_starts_only_after_the_decision_is_recorded(
     monkeypatch.setattr(PostgresChainBackend, "append", append)
     monkeypatch.setattr("devpath.runner._still_permitted", poll)
     result = await case.run(stub)
-    assert events[:2] == ["recorded", "poll"]
+    # The pre-send re-check refuses, so nothing is sent and the watcher never starts.
+    assert events == ["recorded"]
+    assert stub.connections_before_now() == 0
     assert (result.outcome, result.decision_seqs) == ("revoked", (2,))
+    assert result.detail == "revoked_before_send"
     decision = (await case.entries())[2]
     assert (decision.kind, decision.payload["rule_id"]) == ("policy.decision", "ALLOW")
+    await case.assert_no_finding()
+
+
+async def test_revoke_committed_between_decision_and_send_sends_nothing(
+    case: Case, stub: RunningStub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_append = PostgresChainBackend.append
+
+    async def append(self: Any, chain_id: str, kind: str, *args: Any, **kwargs: Any) -> Any:
+        entry = await real_append(self, chain_id, kind, *args, **kwargs)
+        if kind == "policy.decision":
+            await case.revoke()  # committed after the decision, before the send
+        return entry
+
+    monkeypatch.setattr(PostgresChainBackend, "append", append)
+    result = await case.run(stub)
+    assert (stub.connections_before_now(), stub.request_count) == (0, 0)
+    assert (result.outcome, result.detail) == ("revoked", "revoked_before_send")
+    assert (result.finding_id, result.decision_seqs) == (None, (1,))
+    entries = await case.entries()
+    assert [e.kind for e in entries] == [
+        "engagement.created",
+        "policy.decision",
+        "engagement.revoked",
+    ]
+    assert entries[1].payload["allowed"] is True
     await case.assert_no_finding()
 
 
@@ -322,6 +354,10 @@ async def _edit(case: Case, model: Any, **changes: Any) -> None:
         await session.commit()
 
 
+def _codes(report: Any) -> set[str]:
+    return {problem.code for problem in report.integrity.problems}
+
+
 def _sha(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
@@ -339,8 +375,24 @@ def _sha(value: str) -> str:
         (Evidence, {"ledger_seq": 1}),
         (Finding, {"status": "false_positive"}),
         (Finding, {"evidence_ids": []}),
+        (Finding, {"title": "edited"}),
+        (Evidence, {"kind": "edited"}),
+        (Evidence, {"expected": "edited"}),
+        (Evidence, {"observed": None}),
     ],
-    ids=["excerpt", "excerpt-and-hash", "hash", "policy", "seq", "status", "evidence-ids"],
+    ids=[
+        "excerpt",
+        "excerpt-and-hash",
+        "hash",
+        "policy",
+        "seq",
+        "status",
+        "evidence-ids",
+        "title",
+        "kind",
+        "expected",
+        "observed",
+    ],
 )
 async def test_edited_rows_are_reported_as_mismatch(
     case: Case, stub: RunningStub, model: Any, changes: dict[str, Any]
@@ -350,6 +402,8 @@ async def test_edited_rows_are_reported_as_mismatch(
     report = await case.report()
     assert list(report.evidence_checks.values()) == [False]
     assert "MISMATCH" in render_report(report)
+    assert report.integrity.status == "mismatch"
+    assert "evidence_row_differs" in _codes(report)
     assert report.verify.result == "ok"  # the chain itself was not touched
 
 
@@ -386,3 +440,66 @@ async def test_no_header_value_reaches_rows_report_or_output(
     captured = capsys.readouterr()
     everything = "".join([*dumped, document, repr(result), captured.out, captured.err, caplog.text])
     assert CANARY not in everything
+
+
+async def _delete(case: Case, *models: Any) -> None:
+    """ORM deletes in the given order, as the app role (it holds DELETE on these tables)."""
+    async with AsyncSession(case.engine) as session, session.begin():
+        for model in models:
+            query = select(model).where(model.engagement_id == case.engagement_id)
+            await session.delete((await session.execute(query)).scalar_one())
+            await session.flush()
+
+
+@pytest.mark.parametrize(
+    ("models", "codes"),
+    [
+        ((Evidence,), {"evidence_row_missing", "confirmed_without_evidence"}),
+        (
+            (Evidence, Finding),
+            {"evidence_row_missing", "finding_row_missing", "confirmed_without_evidence"},
+        ),
+    ],
+    ids=["evidence", "finding-and-evidence"],
+)
+async def test_deleted_rows_are_reported(
+    case: Case, stub: RunningStub, models: tuple[Any, ...], codes: set[str]
+) -> None:
+    await case.run(stub)
+    await _delete(case, *models)
+    report = await case.report()
+    assert report.evidence == () and report.evidence_checks == {}
+    assert (report.integrity.status, _codes(report)) == ("mismatch", codes)
+    assert "MISMATCH" in render_report(report)
+    assert report.verify.result == "ok"
+
+
+@pytest.mark.parametrize(
+    ("model", "codes"),
+    [(Finding, {"finding_row_unrecorded"}), (Evidence, {"evidence_row_unrecorded"})],
+    ids=["finding", "evidence"],
+)
+async def test_a_row_without_a_ledger_entry_is_reported(
+    case: Case, stub: RunningStub, model: Any, codes: set[str]
+) -> None:
+    await case.run(stub)
+    async with AsyncSession(case.engine) as session, session.begin():
+        query = select(model).where(model.engagement_id == case.engagement_id)
+        row = (await session.execute(query)).scalar_one()
+        copy = {c.key: getattr(row, c.key) for c in model.__table__.columns}
+        copy["id"] = str(uuid.uuid4())
+        session.add(model(**copy))
+    report = await case.report()
+    assert (report.integrity.status, _codes(report)) == ("mismatch", codes)
+    assert "MISMATCH" in render_report(report)
+
+
+async def test_a_bounded_ledger_read_is_reported_as_incomplete(
+    case: Case, stub: RunningStub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await case.run(stub)
+    monkeypatch.setattr("devpath.runner.MAX_LEDGER_ENTRIES", 4, raising=False)
+    report = await case.report()
+    assert report.integrity.status == "incomplete"
+    assert report.integrity.incomplete_reasons == ("ledger_read_bounded",)
+    assert "check incomplete" in render_report(report)

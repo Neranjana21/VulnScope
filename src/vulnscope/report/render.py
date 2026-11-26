@@ -24,6 +24,8 @@ MAX_DECISIONS = 200
 MAX_FINDINGS = 50
 MAX_EVIDENCE = 100
 MAX_LIST_ITEMS = 100
+MAX_PROBLEMS = 500
+_CHECK_WORDS = {"ok": "ok", "mismatch": "MISMATCH", "incomplete": "check incomplete"}
 
 _TOO_BIG = "report exceeds the size cap"
 _UNSAFE_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
@@ -46,8 +48,18 @@ LIMITS: tuple[str, ...] = (
     "DNS, TLS, redirect following, real labs and real targets are not exercised.",
     "Findings are unscored.",
     "No checkpoint: truncation of the ledger tail or a rewritten chain is undetectable.",
-    "The database role can still modify evidence rows and rewind chain heads (GR-SEC-9). "
-    "Ledger entries and result rows are not written atomically.",
+    "The database role can still modify evidence rows, delete finding and evidence rows, and "
+    "rewind chain heads (GR-SEC-9). Ledger entries and result rows are not written atomically.",
+    "Engagement status and window are read again from the database just before the request. A "
+    "revoke or window expiry that happens after that re-read and before the request bytes are on "
+    "the wire is not prevented: the in-flight watcher may cancel too late. A request refused by "
+    "the re-read leaves an allow decision in the ledger with nothing sent.",
+    "The report-level check compares ledger entries and result rows in both directions for this "
+    "engagement. Compared with the ledger: evidence content hash, ids, policy version, adapter "
+    "and finding status. Compared with fixed constants in this code, because the ledger does not "
+    "record them: evidence kind, expected and observed text, and finding title. Other fields (for "
+    "example severity, CVSS, priority, asset id, taxonomy, identity label and timestamps) are "
+    "not compared. An unverified, short or over-bound ledger read is reported as incomplete.",
     "Structural log scrubbing (SEC-6) is absent.",
     "Engagement creation bypassed the API. Authorization is self-attested.",
 )
@@ -170,10 +182,32 @@ def _finding_block(finding: FindingView) -> list[_Markup]:
     ]
 
 
+def _integrity_line(model: ReportModel) -> _Markup:
+    word = _CHECK_WORDS[model.integrity.status]
+    return _el("p", _el("strong", "Report-level ledger and row check: ", word))
+
+
+def _integrity_block(model: ReportModel) -> list[_Markup]:
+    """Independent of the listed rows, so it shows even when every row is gone."""
+    check = model.integrity
+    parts = [_integrity_line(model)]
+    if check.incomplete_reasons:
+        parts.append(_el("p", "Incomplete because: ", _joined(check.incomplete_reasons)))
+    problems = _capped(check.problems, MAX_PROBLEMS)
+    if problems:
+        parts.append(_el("p", "MISMATCH between the ledger and the result rows:"))
+        rows = [_el("tr", _el("th", "Problem"), _el("th", "Record id"))]
+        rows += [_el("tr", _el("td", p.code), _el("td", p.record_id)) for p in problems]
+        parts.append(_el("table", *rows))
+    return parts
+
+
 def _findings_section(model: ReportModel) -> list[_Markup]:
     findings = _capped(model.findings, MAX_FINDINGS)
     evidence = _capped(model.evidence, MAX_EVIDENCE)
-    parts: list[_Markup] = [] if findings else [_el("p", "No findings.")]
+    parts = _integrity_block(model)
+    if not findings:
+        parts.append(_el("p", "No findings."))
     for finding in findings:
         parts += _finding_block(finding)
         for item in evidence:
@@ -256,6 +290,7 @@ def render_report(model: ReportModel) -> str:
             "1 Summary and top fixes",
             [
                 _el("p", "Outcome: ", model.outcome),
+                _integrity_line(model),
                 _el("p", "Findings listed: ", len(model.findings)),
                 _el("p", "Top fixes: ", _NOT_IMPLEMENTED),
             ],

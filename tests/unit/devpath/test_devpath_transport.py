@@ -136,10 +136,11 @@ async def test_allowed_head_sends_exactly_one_minimal_head(
 async def test_fresh_view_is_read_immediately_before_each_decision(stub: RunningStub) -> None:
     h = Harness()
     await h.head(stub)
-    assert h.events == ["view", "head", "append"]
+    allowed = ["view", "head", "append", "view"]  # the last read is the pre-send re-check
+    assert h.events == allowed
     h.view_changes["status"] = "revoked"
     decision, response = await h.head(stub)
-    assert h.events == ["view", "head", "append"] * 2
+    assert h.events == allowed + ["view", "head", "append"]
     assert (decision.rule_id, response) == (RuleId.REVOKED, None)
     assert stub.connections_before_now() == 1
 
@@ -458,3 +459,89 @@ async def test_cancelling_the_task_stops_the_send_and_closes_the_socket(
             await task
         assert await asyncio.to_thread(running.wait_for_client_close)
     assert [s.fileno() for s in connects] == [-1]
+
+
+def _after_record(h: Harness, change: Any) -> None:
+    """``change`` runs once the decision is in the ledger, before the sender resumes."""
+    real = h.ledger.append
+
+    async def append(**kwargs: Any) -> Any:
+        entry = await real(**kwargs)
+        change()
+        return entry
+
+    h.ledger.append = append  # type: ignore[method-assign]
+
+
+async def _refused_code(h: Harness, stub: RunningStub, sending: asyncio.Event) -> str:
+    try:
+        await transport.guarded_head(
+            stub=stub, fresh_view=h.fresh_view, deps=h.deps, run_id="run-1", sending=sending
+        )
+    except transport.SendRefused as refused:
+        assert refused.__context__ is None and refused.__cause__ is None
+        assert CANARY not in str(refused) + repr(refused)
+        assert refused.decision is not None and refused.decision.ledger_seq == 0
+        return refused.code
+    return "sent"
+
+
+def _nothing_sent(stub: RunningStub, connects: list[Any]) -> tuple[int, int, int]:
+    return (len(connects), stub.connections_before_now(), stub.request_count)
+
+
+@pytest.mark.parametrize(
+    ("changes", "code"),
+    [
+        (lambda: {"status": "revoked"}, "revoked_before_send"),
+        (lambda: {"status": "draft"}, "revoked_before_send"),
+        (
+            lambda: {"window_not_after": datetime.now(UTC) - timedelta(microseconds=1)},
+            "window_closed_before_send",
+        ),
+        (
+            lambda: {"window_not_before": datetime.now(UTC) + timedelta(hours=1)},
+            "window_closed_before_send",
+        ),
+    ],
+    ids=["revoked", "not-active", "window-expired", "window-not-open"],
+)
+async def test_change_during_decision_recording_sends_nothing(
+    stub: RunningStub, connects: list[Any], changes: Any, code: str
+) -> None:
+    h = Harness()
+    _after_record(h, lambda: h.view_changes.update(changes()))
+    sending = asyncio.Event()
+    got = await _refused_code(h, stub, sending)
+    assert (got, _nothing_sent(stub, connects)) == (code, (0, 0, 0))
+    assert not sending.is_set()
+    assert [e["payload"]["rule_id"] for e in h.ledger.entries] == ["ALLOW"]
+
+
+@pytest.mark.parametrize("fault", ["error", "timeout", "unusable"])
+async def test_failed_recheck_fails_closed(
+    stub: RunningStub, connects: list[Any], monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    monkeypatch.setattr(transport, "RECHECK_TIMEOUT_S", 0.1, raising=False)
+    h = Harness()
+    real = h.fresh_view
+    reads: list[int] = []
+
+    async def fresh_view() -> Any:
+        reads.append(1)
+        if len(reads) == 1:
+            return await real()
+        if fault == "error":
+            raise ConnectionError(CANARY)
+        if fault == "timeout":
+            await asyncio.sleep(1.0)
+            return await real()
+        return None
+
+    h.fresh_view = fresh_view  # type: ignore[method-assign]
+    got = await asyncio.wait_for(_refused_code(h, stub, asyncio.Event()), 3.0)
+    assert (got, _nothing_sent(stub, connects)) == ("recheck_failed", (0, 0, 0))
+
+
+def test_recheck_timeout_is_pinned() -> None:
+    assert transport.RECHECK_TIMEOUT_S == 2.0

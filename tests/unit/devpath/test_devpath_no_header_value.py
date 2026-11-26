@@ -10,7 +10,12 @@ from devpath.stub import RunningStub
 from test_devpath_transport import Harness
 
 from vulnscope.models.schemas.ledger import VerifyResponse
-from vulnscope.report.model import DecisionFact, EngagementFacts, ReportModel
+from vulnscope.report.model import (
+    DecisionFact,
+    EngagementFacts,
+    IntegrityCheck,
+    ReportModel,
+)
 from vulnscope.report.render import render_report
 from vulnscope.validate.evidence import build_evidence
 from vulnscope.validate.security_headers import evaluate
@@ -52,6 +57,7 @@ async def test_no_target_text_reaches_evidence_ledger_logs_or_output(
             evidence=(),
             evidence_checks={},
             outcome=result.outcome,
+            integrity=IntegrityCheck((), ()),
             verify=VerifyResponse(result="ok", first_bad_seq=None, records=1, checkpoint_seq=None),
         )
     )

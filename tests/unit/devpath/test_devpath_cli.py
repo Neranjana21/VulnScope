@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -66,3 +67,26 @@ def test_unexpected_errors_print_only_the_class_name(
     out = capsys.readouterr()
     assert out.out == f"{LABEL}\nerror=RuntimeError\n"
     assert out.err == ""
+
+
+@pytest.mark.parametrize(
+    ("checks", "reasons", "problems", "expected"),
+    [
+        ({"a": True}, (), (), True),
+        ({"a": True}, (), ("evidence_row_missing",), False),
+        ({"a": True}, ("ledger_read_bounded",), (), False),
+        ({"a": False}, (), (), False),
+        ({}, (), (), False),
+    ],
+    ids=["clean", "problem", "incomplete", "row", "nothing-checked"],
+)
+def test_checks_ok_needs_the_report_level_check(
+    checks: dict[str, bool], reasons: tuple[str, ...], problems: tuple[str, ...], expected: bool
+) -> None:
+    from vulnscope.report.model import IntegrityCheck, IntegrityProblem
+
+    model = SimpleNamespace(
+        evidence_checks=checks,
+        integrity=IntegrityCheck(reasons, tuple(IntegrityProblem(c, "x") for c in problems)),
+    )
+    assert demo()._checks_ok(model) is expected

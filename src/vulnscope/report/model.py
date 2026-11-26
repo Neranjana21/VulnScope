@@ -42,6 +42,26 @@ class DecisionFact:
 
 
 @dataclass(frozen=True)
+class IntegrityProblem:
+    code: str
+    record_id: str  # a row id or a ledger payload id
+
+
+@dataclass(frozen=True)
+class IntegrityCheck:
+    """The report-level ledger and row check. ``ok`` only if nothing is listed in either."""
+
+    incomplete_reasons: tuple[str, ...]
+    problems: tuple[IntegrityProblem, ...]
+
+    @property
+    def status(self) -> Literal["ok", "mismatch", "incomplete"]:
+        if self.incomplete_reasons:
+            return "incomplete"
+        return "mismatch" if self.problems else "ok"
+
+
+@dataclass(frozen=True)
 class ReportModel:
     label: str
     engagement: EngagementFacts
@@ -52,3 +72,4 @@ class ReportModel:
     evidence_checks: Mapping[str, bool]  # evidence id -> row, hash and chain entry agree
     outcome: ReportOutcome
     verify: VerifyResponse
+    integrity: IntegrityCheck  # required: there is no default "ok"
