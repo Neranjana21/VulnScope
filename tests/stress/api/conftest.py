@@ -33,7 +33,6 @@ CLAUDE.md rule 2 by construction (no socket is ever opened here).
 """
 from __future__ import annotations
 
-import os
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -41,20 +40,17 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
+from stress_dbguard import require_task_database_url
 
 TEST_DATABASE_URL_ENV = "VULNSCOPE_TEST_DATABASE_URL"
 
 
 @pytest.fixture
 def test_database_url() -> str:
-    url = os.environ.get(TEST_DATABASE_URL_ENV)
-    if not url:
-        pytest.skip(
-            f"{TEST_DATABASE_URL_ENV} not set; API stress tests need a "
-            "throwaway CI/dev Postgres instance wired through Task 0's "
-            "db/session.py"
-        )
-    return url
+    # 2026-11-19 owner decision: refuse any database that is not a disposable
+    # vulnscope_task<letters>_<8 hex> on 127.0.0.1:5432 (a failure, not a skip), and turn the
+    # unset-env skip into a failure under VULNSCOPE_REQUIRE_INTEGRATION=1. Fixed-text messages.
+    return require_task_database_url()
 
 
 @pytest.fixture(autouse=True)
