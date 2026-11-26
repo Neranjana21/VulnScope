@@ -1,5 +1,5 @@
 # ADR-0013: Step 1 in-process development path
-Status: accepted (owner rulings Q1, Q2 and the round 25 cuts). Not committed.
+Status: accepted (owner rulings Q1, Q2 and the round 25 cuts). Implemented on the Step 1 branch.
 
 Label, used in code, command output and the report: **STEP 1 DEVELOPMENT PATH: no gateway, no worker, not the security boundary**.
 

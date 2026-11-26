@@ -1,5 +1,5 @@
 # ADR-0012: Unscored finding placeholder
-Status: accepted (owner-approved, including the `docs/io-contracts.md` change, round 25). Not committed.
+Status: accepted (owner-approved, including the `docs/io-contracts.md` change, round 25). Implemented on the Step 1 branch.
 
 ## Context
 `docs/io-contracts.md` "Finding" requires `cvss{version, vector, score, source, snapshot}` and `priority{band, reasons[], policy_version, unknown_inputs[]}`, and `severity` is derived from the CVSS band. Step 1 (ADR-0013) produces a finding before any scoring exists. A made-up score such as `0.0` reads as "scored, no impact", which is false and breaks the honest-measurement rule.
