@@ -169,6 +169,7 @@ async def guarded_head(
     fresh_view: Callable[[], Awaitable[EngagementPolicyView]],
     deps: TransportDeps,
     run_id: str,
+    sending: asyncio.Event | None = None,
 ) -> tuple[PolicyDecision, HeaderResponse | None]:
     """Decide, record, then HEAD our stub. There is no URL, host or port argument, and
     only an exact ``devpath.stub.RunningStub`` is accepted.
@@ -203,4 +204,6 @@ async def guarded_head(
     refused = _refusal(decision, port)
     if refused is not None:
         raise SendRefused(refused, decision)
+    if sending is not None:
+        sending.set()  # signal only: the decision is recorded and the send starts now
     return decision, await _send(decision.resolved_ips[0], port, decision)

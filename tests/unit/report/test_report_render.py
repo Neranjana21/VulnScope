@@ -271,15 +271,15 @@ def test_every_text_goes_through_html_escape_with_quote_true(
 
     def marking(value: str, quote: bool = True) -> str:
         calls.append(quote)
-        return "⁣" + value + "⁣" if value else value
+        return "\u2063" + value + "\u2063" if value else value
 
     monkeypatch.setattr(render_module.html, "escape", marking)
     shape = Shape(render_report(make_model("zz")))
     assert calls and all(calls)
     for node in shape.text:
         if node.strip():
-            assert node.startswith("⁣") and node.endswith("⁣"), node
-    assert all(value and value.startswith("⁣") for _, _, value in shape.attrs)
+            assert node.startswith("\u2063") and node.endswith("\u2063"), node
+    assert all(value and value.startswith("\u2063") for _, _, value in shape.attrs)
 
 
 def test_control_bidi_and_surrogate_characters_are_replaced() -> None:
