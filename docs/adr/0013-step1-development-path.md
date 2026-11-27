@@ -1,6 +1,8 @@
 # ADR-0013: Step 1 in-process development path
 Status: accepted (owner rulings Q1, Q2 and the round 25 cuts). Implemented on the Step 1 branch.
 
+**Q2 amended by ADR-0014:** `devpath/` may also connect to the sealed lab app target on `127.0.0.1` port 3000. Statements below that only the stub is contacted describe `devpath.step1`.
+
 Label, used in code, command output and the report: **STEP 1 DEVELOPMENT PATH: no gateway, no worker, not the security boundary**.
 
 ## Context

@@ -86,7 +86,7 @@ class Case:
         assert not {"evidence", "finding.transition"} & set(await self.kinds())
 
     async def report(self, outcome: Any = "issue") -> Any:
-        return await runner.collect_report(outcome=outcome, **self.ids)
+        return await runner.collect_report(outcome=outcome, target_kind="own_stub", **self.ids)
 
 
 @pytest.fixture

@@ -15,6 +15,8 @@ from vulnscope.models.schemas.finding import EvidenceView, FindingView
 from vulnscope.models.schemas.ledger import VerifyResponse
 
 ReportOutcome = Literal["issue", "no_issue", "inconclusive", "denied", "revoked"]
+# What was checked (ADR-0014). It chooses fixed report wording; it is never stored.
+TargetKind = Literal["own_stub", "lab_app"]
 
 
 @dataclass(frozen=True)
@@ -73,3 +75,4 @@ class ReportModel:
     outcome: ReportOutcome
     verify: VerifyResponse
     integrity: IntegrityCheck  # required: there is no default "ok"
+    target_kind: TargetKind  # required: a default could make a false claim

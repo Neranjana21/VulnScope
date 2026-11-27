@@ -16,6 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 _ROOT = str(Path(__file__).resolve().parents[3])
 if _ROOT not in sys.path:
     sys.path.append(_ROOT)
+_FAKES = str(Path(__file__).resolve().parents[2] / "unit" / "devpath")
+if _FAKES not in sys.path:
+    sys.path.append(_FAKES)  # lab_fake: the test-owned port 3000 listener and safety net
 
 from vulnscope.config import Settings  # noqa: E402
 from vulnscope.db.session import get_async_engine  # noqa: E402

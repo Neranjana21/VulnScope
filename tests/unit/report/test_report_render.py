@@ -100,6 +100,7 @@ def make_model(t: str = "text", **changes: Any) -> ReportModel:
         "outcome": "issue",
         "verify": VerifyResponse(result="ok", first_bad_seq=None, records=4, checkpoint_seq=None),
         "integrity": _integrity(t),
+        "target_kind": "own_stub",
     }
     values.update(changes)
     return ReportModel(**values)

@@ -15,7 +15,7 @@ import unicodedata
 from collections.abc import Iterable, Sequence
 
 from vulnscope.models.schemas.finding import EvidenceView, FindingView
-from vulnscope.report.model import ReportModel
+from vulnscope.report.model import ReportModel, TargetKind
 from vulnscope.validate.types import HEADER_NAMES, HeaderName
 
 LABEL = "STEP 1 DEVELOPMENT PATH: no gateway, no worker, not the security boundary"
@@ -114,6 +114,54 @@ LIMITS: tuple[str, ...] = (
     "Structural log scrubbing (SEC-6) is absent.",
     "Engagement creation bypassed the API. Authorization is self-attested.",
 )
+
+# The lab app limits (ADR-0014): the stub sentences that would be false are replaced.
+_LAB_REPLACED: dict[str, str] = {
+    LIMITS[1]: (
+        "It checks five response headers with one HEAD request to the lab app on "
+        "127.0.0.1:3000. It is meant only for a deliberately vulnerable lab app that the "
+        "operator runs locally."
+    ),
+    LIMITS[4]: (
+        "Revoke is tested only in integration; neither command demonstrates it, and its "
+        "latency was not measured."
+    ),
+    LIMITS[7]: (
+        "DNS, TLS, redirect following and real targets are not exercised. The only request "
+        "is the header presence check."
+    ),
+}
+_LAB_ADDED: tuple[str, ...] = (
+    "Port 3000 cannot identify Juice Shop: the sender cannot verify that whatever listens "
+    "there is Juice Shop. It could be any other local server, such as your own development "
+    "server. The operator attests it.",
+    "Container and network settings used for the lab are lab hygiene, not the worker "
+    "boundary: lab isolation not verified.",
+    "Only the presence of the five header names is checked, as one boolean each. Cookies, "
+    "server banners, paths other than /, GET requests and response bodies are not examined.",
+    "SEC-6 and GR-SEC-9 remain open while a lab app's responses are read.",
+)
+LAB_APP_LIMITS: tuple[str, ...] = (
+    tuple(_LAB_REPLACED.get(item, item) for item in LIMITS) + _LAB_ADDED
+)
+_LIMITS_BY_KIND: dict[TargetKind, tuple[str, ...]] = {
+    "own_stub": LIMITS,
+    "lab_app": LAB_APP_LIMITS,
+}
+# (text before the header name, text after it) of the reproduce line.
+_REPRODUCE: dict[TargetKind, tuple[str, str]] = {
+    "own_stub": (
+        "How to reproduce: HEAD / was sent to the demo's own local stub on 127.0.0.1; "
+        "the response had no ",
+        " header. The stub is temporary, so to reproduce this, run the demo again.",
+    ),
+    "lab_app": (
+        "How to reproduce: HEAD / was sent to the lab app on 127.0.0.1:3000; "
+        "the response had no ",
+        " header. The sender cannot verify that the app is Juice Shop. To reproduce this, "
+        "run devpath.step1b again with the same app listening.",
+    ),
+}
 
 
 class _Markup(str):
@@ -215,16 +263,12 @@ def _remediation_block(model: ReportModel, finding: FindingView) -> list[_Markup
     if not absent:
         return [*parts, _el("p", _NONE_ABSENT)]
     parts.append(_el("p", _PRESENCE_ONLY))
+    before, after = _REPRODUCE[model.target_kind]
     for name in absent:
         parts += [
             _el("p", _el("strong", "Absent header: ", name)),
             _el("p", _REMEDIATION[name]),
-            _el(
-                "p",
-                "How to reproduce: HEAD / was sent to the demo's own local stub on 127.0.0.1; ",
-                f"the response had no {name} header. The stub is temporary, so to reproduce "
-                "this, run the demo again.",
-            ),
+            _el("p", before, name, after),
         ]
     return parts
 
@@ -406,13 +450,15 @@ def _ledger_section(model: ReportModel) -> list[_Markup]:
             ]
         ),
         _el("h3", "Limits of this assessment"),
-        _bullets(LIMITS),
+        _bullets(_LIMITS_BY_KIND[model.target_kind]),
     ]
 
 
 def render_report(model: ReportModel) -> str:
     if model.label != LABEL:
         raise ValueError("report model does not carry the Step 1 label")
+    if model.target_kind not in _LIMITS_BY_KIND:
+        raise ValueError("report model has an unknown target kind")
     sections: list[tuple[str, list[_Markup]]] = [
         (
             "1 Summary and top fixes",

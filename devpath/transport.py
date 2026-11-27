@@ -2,8 +2,9 @@
 
 ``guarded_head`` is the only way to send: fresh engagement view, then
 ``decide_and_record``, then a second fresh read of status and window, then one HEAD of
-``/`` to our own stub. One decision, one request. The scope guard decides; the re-check
-and the pin checks here can only refuse, never allow (the pin is needed because the
+``/`` to one of two in-code targets on 127.0.0.1: our own stub, or the sealed
+``devpath.targets.JUICE_SHOP`` (ADR-0014). One decision, one request. The scope guard decides; the
+re-check and the pin checks here can only refuse, never allow (the pin is needed because the
 policy does not restrict ports, ADR-0013). A revoke or expiry after the second read and
 before the bytes are on the wire is not prevented here.
 
@@ -24,6 +25,7 @@ from dataclasses import dataclass
 import h11
 
 from devpath.stub import NotTheRealStub, RunningStub, bound_port
+from devpath.targets import JUICE_SHOP, JUICE_SHOP_PORT, LabTarget
 from vulnscope.ledger.chain import ChainBackend
 from vulnscope.policy.clock import Clock
 from vulnscope.policy.decide_and_record import decide_and_record
@@ -83,7 +85,7 @@ class _RefusingResolver:
         raise ResolutionError("Step 1 performs no DNS")
 
 
-def _stub_port(stub: RunningStub, decision: PolicyDecision | None) -> int:
+def _stub_port(stub: object, decision: PolicyDecision | None) -> int:
     try:
         return bound_port(stub)
     except NotTheRealStub:
@@ -92,7 +94,19 @@ def _stub_port(stub: RunningStub, decision: PolicyDecision | None) -> int:
         raise SendRefused("stub_not_running", decision) from None
 
 
-def _refusal(decision: PolicyDecision, stub_port: int) -> str | None:
+def _target_port(target: object, decision: PolicyDecision | None) -> int:
+    """The allowlist (ADR-0014): the object ``JUICE_SHOP`` itself (identity only), or an
+    exact running stub asked for its socket's port. Everything else is refused."""
+    if target is JUICE_SHOP:
+        return JUICE_SHOP_PORT
+    return _stub_port(target, decision)
+
+
+def _origin(port: int) -> str:
+    return f"http://{PINNED_HOST}:{port}/"
+
+
+def _refusal(decision: PolicyDecision, pinned_port: int) -> str | None:
     """Why this decision must not be sent, or None. Can only refuse."""
     if decision.allowed is not True or decision.rule_id is not RuleId.ALLOW:
         return "not_an_allow"
@@ -108,10 +122,15 @@ def _refusal(decision: PolicyDecision, stub_port: int) -> str | None:
         return "scheme_not_pinned"
     if target.host != PINNED_HOST:
         return "host_not_pinned"
-    if target.port != stub_port:
+    if target.port != pinned_port:
         return "port_not_pinned"
     if decision.resolved_ips != (PINNED_HOST,):
         return "address_not_pinned"
+    if decision.action.kind != "http":
+        return "kind_not_pinned"
+    # The parser canonicalises (127.1 becomes 127.0.0.1), so the text must match too.
+    if decision.action.target != _origin(pinned_port):
+        return "target_not_exact"
     return None
 
 
@@ -184,16 +203,31 @@ async def _send(ip: str, port: int, decision: PolicyDecision) -> HeaderResponse:
     raise SendFailed(code, decision)
 
 
+async def _pinned_send(
+    target: object, decision: PolicyDecision, sending: asyncio.Event | None
+) -> HeaderResponse:
+    """The last gate before a socket: allowlisted target, then the pin. No await comes
+    between these checks and the creation of the socket."""
+    port = _target_port(target, decision)
+    refused = _refusal(decision, port)
+    if refused is not None:
+        raise SendRefused(refused, decision)
+    if sending is not None:
+        sending.set()  # signal only: the decision is recorded and the send starts now
+    return await _send(PINNED_HOST, port, decision)
+
+
 async def guarded_head(
     *,
-    stub: RunningStub,
+    stub: RunningStub | LabTarget,
     fresh_view: Callable[[], Awaitable[EngagementPolicyView]],
     deps: TransportDeps,
     run_id: str,
     sending: asyncio.Event | None = None,
 ) -> tuple[PolicyDecision, HeaderResponse | None]:
-    """Decide, record, then HEAD our stub. There is no URL, host or port argument, and
-    only an exact ``devpath.stub.RunningStub`` is accepted.
+    """Decide, record, then HEAD the target. There is no URL, host or port argument.
+    ``stub`` (the name predates ADR-0014) must be an exact ``devpath.stub.RunningStub``
+    or the object ``devpath.targets.JUICE_SHOP``.
 
     A deny returns ``(decision, None)`` with nothing sent. Any error from the first view
     read or the ledger propagates before a socket exists. ``SendRefused``: an allow failed
@@ -202,7 +236,7 @@ async def guarded_head(
     """
     action = Action(
         kind="http",
-        target=f"http://{PINNED_HOST}:{_stub_port(stub, None)}/",
+        target=_origin(_target_port(stub, None)),
         adapter=ADAPTER_PREFIX + run_id,
     )
     view = await fresh_view()  # re-read immediately before the decision (rule 4)
@@ -226,10 +260,4 @@ async def guarded_head(
     withdrawn = await _recheck(fresh_view, deps.clock)
     if withdrawn is not None:
         raise SendRefused(withdrawn, decision)
-    port = _stub_port(stub, decision)
-    refused = _refusal(decision, port)
-    if refused is not None:
-        raise SendRefused(refused, decision)
-    if sending is not None:
-        sending.set()  # signal only: the decision is recorded and the send starts now
-    return decision, await _send(decision.resolved_ips[0], port, decision)
+    return decision, await _pinned_send(stub, decision, sending)
